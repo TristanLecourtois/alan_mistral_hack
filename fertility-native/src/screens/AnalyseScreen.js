@@ -1,31 +1,55 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Animated, Easing, StyleSheet } from 'react-native'
+import { View, Text, Animated, Easing, StyleSheet, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNav, SCREENS } from '../navigation'
+import { uploadDocument } from '../api'
 import { colors, font, shadow } from '../theme'
 
-const STEPS = [
-  { label: 'Medical OCR', desc: 'Mistral OCR 3 · Values extracted', status: 'done' },
-  { label: 'WHO 2021 norms', desc: 'HAS reference comparison', status: 'done' },
-  { label: 'Clinical interpretation', desc: 'Mistral Small 4 · In progress…', status: 'active' },
-  { label: 'Patient sheet + questions', desc: 'Generating report', status: 'pending' },
-]
-
 export default function AnalyseScreen() {
-  const { navigate } = useNav()
+  const { navigate, params } = useNav()
   const insets = useSafeAreaInsets()
   const spin = useRef(new Animated.Value(0)).current
+  const [stepIndex, setStepIndex] = useState(0)
+
+  const steps = [
+    { label: 'Reading document', desc: 'Uploading to Mistral OCR…' },
+    { label: 'Extracting values', desc: 'WHO 2021 norms comparison' },
+    { label: 'Interpreting results', desc: 'Mistral AI · Generating report…' },
+  ]
 
   useEffect(() => {
     Animated.loop(
       Animated.timing(spin, { toValue: 1, duration: 1200, easing: Easing.linear, useNativeDriver: true })
     ).start()
-    // Auto-navigate after 3s (demo)
-    const t = setTimeout(() => navigate(SCREENS.FICHE), 3000)
-    return () => clearTimeout(t)
+
+    async function run() {
+      try {
+        const file = params?.file
+        if (!file) {
+          // No real file — demo mode, just wait 3s
+          setTimeout(() => navigate(SCREENS.FICHE, { ocrResult: null }), 3000)
+          return
+        }
+
+        setStepIndex(0)
+        const result = await uploadDocument(file)
+        setStepIndex(1)
+        // Small pause so user sees step 2 light up
+        await new Promise(r => setTimeout(r, 500))
+        setStepIndex(2)
+        await new Promise(r => setTimeout(r, 400))
+        navigate(SCREENS.FICHE, { ocrResult: result, fileName: file.name })
+      } catch (e) {
+        Alert.alert('Analysis failed', e.message || 'Could not connect to the server. Make sure the backend is running.')
+        navigate(SCREENS.UPLOAD)
+      }
+    }
+
+    run()
   }, [])
 
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] })
+  const fileName = params?.file?.name || 'Document'
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -33,23 +57,26 @@ export default function AnalyseScreen() {
         <Animated.View style={[styles.ring, { transform: [{ rotate }] }]} />
         <Text style={styles.ringEmoji}>🔬</Text>
         <Text style={styles.title}>Analysis in progress…</Text>
-        <Text style={styles.sub}>SpermAnalysis_March2025.pdf</Text>
+        <Text style={styles.sub}>{fileName}</Text>
 
         <View style={styles.stepsList}>
-          {STEPS.map((step, i) => (
-            <View key={i} style={[styles.stepRow, step.status === 'done' && styles.stepDone, step.status === 'active' && styles.stepActive]}>
-              <View style={[styles.stepIcon, step.status === 'done' && styles.stepIconDone, step.status === 'active' && styles.stepIconActive]}>
-                <Text style={styles.stepIconText}>
-                  {step.status === 'done' ? '✓' : step.status === 'active' ? '🧠' : '💬'}
-                </Text>
+          {steps.map((step, i) => {
+            const status = i < stepIndex ? 'done' : i === stepIndex ? 'active' : 'pending'
+            return (
+              <View key={i} style={[styles.stepRow, status === 'done' && styles.stepDone, status === 'active' && styles.stepActive]}>
+                <View style={[styles.stepIcon, status === 'done' && styles.stepIconDone, status === 'active' && styles.stepIconActive]}>
+                  <Text style={styles.stepIconText}>
+                    {status === 'done' ? '✓' : status === 'active' ? '🧠' : '💬'}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.stepName}>{step.label}</Text>
+                  <Text style={styles.stepDesc}>{step.desc}</Text>
+                </View>
+                {status === 'done' && <Text style={{ color: colors.teal, fontSize: 16 }}>✓</Text>}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.stepName}>{step.label}</Text>
-                <Text style={styles.stepDesc}>{step.desc}</Text>
-              </View>
-              {step.status === 'done' && <Text style={{ color: colors.teal, fontSize: 16 }}>✓</Text>}
-            </View>
-          ))}
+            )
+          })}
         </View>
       </View>
     </View>

@@ -4,32 +4,93 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useNav, SCREENS } from '../navigation'
 import { colors, font, shadow } from '../theme'
 
-const results = [
-  { dot: colors.green,      name: 'Concentration',       norm: 'WHO norm ≥ 16 M/mL', val: '42',  unit: 'M/mL', color: colors.green },
-  { dot: colors.green,      name: 'Volume',               norm: 'WHO norm ≥ 1.4 mL',  val: '3.2', unit: 'mL',   color: colors.green },
-  { dot: colors.orangeWarn, name: 'Progressive motility', norm: 'WHO norm ≥ 32%',      val: '28',  unit: '%',    color: colors.orangeWarn },
-  { dot: colors.orangeWarn, name: 'Normal morphology',    norm: 'WHO norm ≥ 4%',       val: '3',   unit: '%',    color: colors.orangeWarn },
+// Fallback mock data when no real OCR result
+const MOCK_RESULTS = [
+  { key: 'concentration',        label: 'Concentration',         value: 42,   unit: 'M/mL', status: 'ok',   reference: '≥ 16 M/mL' },
+  { key: 'volume',               label: 'Volume',                value: 3.2,  unit: 'mL',   status: 'ok',   reference: '≥ 1.4 mL' },
+  { key: 'motility_progressive', label: 'Progressive motility',  value: 28,   unit: '%',    status: 'warn', reference: '≥ 32 %' },
+  { key: 'morphology_normal',    label: 'Normal morphology',     value: 3,    unit: '%',    status: 'warn', reference: '≥ 4 %' },
 ]
 
+function statusColor(status) {
+  if (status === 'ok')    return colors.green
+  if (status === 'warn')  return colors.orangeWarn
+  if (status === 'alert') return colors.redAlert
+  return colors.mid
+}
+
+function statusLabel(status) {
+  if (status === 'ok')    return 'Within norms'
+  if (status === 'warn')  return 'Slightly low'
+  if (status === 'alert') return 'Below WHO'
+  return ''
+}
+
+function buildInsight(values) {
+  if (!values || values.length === 0) return null
+  const alerts = values.filter(v => v.status === 'alert')
+  const warns  = values.filter(v => v.status === 'warn')
+  const ok     = values.filter(v => v.status === 'ok')
+
+  if (alerts.length === 0 && warns.length === 0) {
+    return 'All values are within WHO 2021 norms. Keep it up!'
+  }
+  const issues = [...alerts, ...warns].map(v => `${v.label} (${v.value} ${v.unit})`).join(', ')
+  const plural = alerts.length + warns.length > 1 ? 'values are' : 'value is'
+  return `${issues} ${plural} outside WHO norms. Discuss with your doctor — a single sample is never definitive.`
+}
+
 export default function FichePatientScreen() {
-  const { navigate, goBack } = useNav()
+  const { navigate, params } = useNav()
   const insets = useSafeAreaInsets()
+
+  const ocrResult = params?.ocrResult
+  const fileName  = params?.fileName || 'Document'
+
+  const values  = ocrResult?.values  ?? MOCK_RESULTS
+  const docType = ocrResult?.doc_type ?? 'Semen Analysis'
+  const insight = buildInsight(values)
+
+  // Group by category for display
+  const spermKeys   = ['volume','concentration','motility_progressive','motility_total','motility_non','morphology_normal','morphology_abnormal','vitality','ph','pus_cells','liquefaction']
+  const hormoneKeys = ['amh','fsh','lh','e2','tsh','prolactin','testosterone','antral_follicle_count']
+
+  const spermValues   = values.filter(v => spermKeys.includes(v.key))
+  const hormoneValues = values.filter(v => hormoneKeys.includes(v.key))
+  const otherValues   = values.filter(v => !spermKeys.includes(v.key) && !hormoneKeys.includes(v.key))
+
+  function renderValue(v, i) {
+    const col = statusColor(v.status)
+    return (
+      <View key={i} style={[styles.resultRow, shadow.sm]}>
+        <View style={[styles.resDot, { backgroundColor: col }]} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.resName}>{v.label}</Text>
+          <Text style={styles.resNorm}>WHO norm {v.reference}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[styles.resVal, { color: col }]}>{v.value}</Text>
+          <Text style={styles.resUnit}>{v.unit}</Text>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.tag}>Semen Analysis · AI Analysis</Text>
+        <Text style={styles.tag}>{docType.toUpperCase()} · AI Analysis</Text>
         <Text style={styles.title}>Your report</Text>
-        <Text style={styles.date}>March 2025 · Analyzed by Mistral OCR 3 + Small 4</Text>
+        <Text style={styles.date}>{fileName} · Analyzed by Mistral OCR</Text>
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }} showsVerticalScrollIndicator={false}>
         {/* Legend */}
         <View style={styles.legend}>
           {[
-            { color: colors.green, label: 'Within norms' },
+            { color: colors.green,      label: 'Within norms' },
             { color: colors.orangeWarn, label: 'Slightly low' },
-            { color: colors.redAlert, label: 'Below WHO' },
+            { color: colors.redAlert,   label: 'Below WHO' },
           ].map((l, i) => (
             <View key={i} style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: l.color }]} />
@@ -38,29 +99,39 @@ export default function FichePatientScreen() {
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>CONCENTRATION · VOLUME · MOTILITY</Text>
+        {spermValues.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>SPERMOGRAM</Text>
+            {spermValues.map(renderValue)}
+          </>
+        )}
 
-        {results.map((r, i) => (
-          <View key={i} style={[styles.resultRow, shadow.sm]}>
-            <View style={[styles.resDot, { backgroundColor: r.dot }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.resName}>{r.name}</Text>
-              <Text style={styles.resNorm}>{r.norm}</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.resVal, { color: r.color }]}>{r.val}</Text>
-              <Text style={styles.resUnit}>{r.unit}</Text>
-            </View>
+        {hormoneValues.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { marginTop: 12 }]}>HORMONAL PANEL</Text>
+            {hormoneValues.map(renderValue)}
+          </>
+        )}
+
+        {otherValues.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { marginTop: 12 }]}>OTHER VALUES</Text>
+            {otherValues.map(renderValue)}
+          </>
+        )}
+
+        {values.length === 0 && (
+          <View style={[styles.resultRow, shadow.sm]}>
+            <Text style={{ color: colors.mid, fontSize: 13 }}>No medical values could be extracted from this document.</Text>
           </View>
-        ))}
+        )}
 
-        <LinearGradient colors={['#4056F4', '#7C5CFC']} style={styles.insightBanner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-          <Text style={styles.ibannTag}>💡 Fertility Copilot says</Text>
-          <Text style={styles.ibannText}>
-            Your concentration is <Text style={styles.ibannBold}>excellent</Text>. Motility (28%) is slightly below WHO norms (32%) — this{' '}
-            <Text style={styles.ibannBold}>is not necessarily problematic in isolation</Text> and can vary between samples.
-          </Text>
-        </LinearGradient>
+        {insight && (
+          <LinearGradient colors={['#4056F4', '#7C5CFC']} style={styles.insightBanner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+            <Text style={styles.ibannTag}>💡 Fertility Copilot says</Text>
+            <Text style={styles.ibannText}>{insight}</Text>
+          </LinearGradient>
+        )}
 
         <TouchableOpacity style={[styles.btnCoral, shadow.md]} onPress={() => navigate(SCREENS.QUESTIONS)}>
           <Text style={styles.btnCoralText}>See questions for my appointment →</Text>

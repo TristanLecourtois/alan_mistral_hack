@@ -1,5 +1,6 @@
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as DocumentPicker from 'expo-document-picker'
 import { useNav, SCREENS } from '../navigation'
 import { colors, font, shadow } from '../theme'
 
@@ -10,8 +11,24 @@ const docs = [
 ]
 
 export default function UploadScreen() {
-  const { navigate, goBack } = useNav()
+  const { navigate } = useNav()
   const insets = useSafeAreaInsets()
+
+  async function pickDocument() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+      })
+
+      if (result.canceled) return
+
+      const file = result.assets[0]
+      navigate(SCREENS.ANALYSE, { file })
+    } catch (e) {
+      Alert.alert('Error', 'Could not open the file picker.')
+    }
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -21,12 +38,12 @@ export default function UploadScreen() {
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={styles.uploadZone} onPress={() => navigate(SCREENS.ANALYSE)}>
+        <TouchableOpacity style={styles.uploadZone} onPress={pickDocument}>
           <Text style={styles.uploadIcon}>📄</Text>
           <Text style={styles.uploadTitle}>Import a document</Text>
           <Text style={styles.uploadText}>Sperm analysis, hormonal panel,{'\n'}ultrasound, follicle count…</Text>
           <View style={styles.typeTags}>
-            {['PDF', 'JPG', 'PNG', 'DOCX'].map(t => (
+            {['PDF', 'JPG', 'PNG'].map(t => (
               <View key={t} style={styles.typeTag}><Text style={styles.typeTagText}>{t}</Text></View>
             ))}
           </View>
@@ -35,7 +52,7 @@ export default function UploadScreen() {
         <Text style={styles.sectionLabel}>RECENT DOCUMENTS</Text>
 
         {docs.map((doc, i) => (
-          <TouchableOpacity key={i} style={[styles.docItem, shadow.sm]} onPress={() => navigate(SCREENS.ANALYSE)}>
+          <TouchableOpacity key={i} style={[styles.docItem, shadow.sm]} onPress={pickDocument}>
             <View style={[styles.docIcon, { backgroundColor: doc.bg }]}>
               <Text style={{ fontSize: 18 }}>{doc.icon}</Text>
             </View>
@@ -47,7 +64,7 @@ export default function UploadScreen() {
           </TouchableOpacity>
         ))}
 
-        <TouchableOpacity style={[styles.docItem, { borderWidth: 1.5, borderColor: 'rgba(64,86,244,0.25)' }, shadow.sm]}>
+        <TouchableOpacity style={[styles.docItem, { borderWidth: 1.5, borderColor: 'rgba(64,86,244,0.25)' }, shadow.sm]} onPress={pickDocument}>
           <View style={[styles.docIcon, { backgroundColor: 'rgba(0,201,153,0.1)' }]}>
             <Text style={{ fontSize: 18 }}>➕</Text>
           </View>
@@ -65,7 +82,6 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.cream },
   top: { paddingHorizontal: 20, paddingVertical: 12 },
-  back: { fontSize: 13, color: colors.mid, marginBottom: 10 },
   title: { fontSize: 22, fontWeight: font.black, color: colors.navy, marginBottom: 4 },
   sub: { fontSize: 12, color: colors.mid, lineHeight: 18 },
   body: { flex: 1, paddingHorizontal: 16 },
