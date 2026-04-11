@@ -29,7 +29,7 @@ Mia is a mobile app (iOS/Android) that turns a photo of any fertility lab report
 
 4. **Improve** — The user connects their wearable device (Apple Watch, Oura Ring, Garmin, Whoop, Withings) via Thryve. Real-time biometrics — sleep quality, resting heart rate, activity, SpO₂ — are fetched daily and cross-referenced with fertility markers. A personalized improvement plan is generated ranking lifestyle interventions by clinical impact (e.g. reducing scrotal heat, improving sleep, cutting alcohol).
 
-5. **Copilot** — A persistent AI chat companion, fully aware of the patient's results, answers any fertility question in context across multiple saved conversations.
+5. **Chat** — A persistent AI chat companion, fully aware of the patient's results, answers any fertility question in context across multiple saved conversations.
 
 ## Tech Stack
 
