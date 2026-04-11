@@ -2,9 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput,
   Animated, ActivityIndicator, Alert, StyleSheet,
-  KeyboardAvoidingView, Platform, Dimensions, PanResponder,
+  KeyboardAvoidingView, Platform, Dimensions, Linking, Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as Location from 'expo-location'
 import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
 import { useNav, SCREENS } from '../navigation'
@@ -14,6 +15,266 @@ import { colors, font, shadow } from '../theme'
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window')
 const APPT_OPTIONS = ['This week', 'In 2 weeks', 'In 1 month', 'Not scheduled yet']
+
+// ─── Helpers ─────────────────────────────────────────────────
+function slugify(str) {
+  return (str || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2
+  return R * 2 * Math.asin(Math.sqrt(a))
+}
+
+// French + English keywords for client-side filtering
+function getSpecialties(documentType) {
+  const t = (documentType || '').toLowerCase()
+  if (t.includes('sperm') || t.includes('semen') || t.includes('spermogram'))
+    return [
+      { label: 'Andrologist',       slug: 'andrologue',               icon: '🔬',
+        keywords: ['androlog','urol','fertilit','reproduct','sperm','sperme','spermatolog','masculin'] },
+      { label: 'Urologist',         slug: 'urologue',                 icon: '🏥',
+        keywords: ['urol','prostat','rein','rénal','bladder','uriner','urinar'] },
+      { label: 'Gynaecologist',     slug: 'gynecologue-obstetricien', icon: '👩‍⚕️',
+        keywords: ['gynec','gynéc','matern','obstet','fertilit','femme','women','pma','ivf','procréat'] },
+    ]
+  return [
+    { label: 'Gynaecologist',       slug: 'gynecologue-obstetricien', icon: '👩‍⚕️',
+      keywords: ['gynec','gynéc','matern','obstet','fertilit','femme','women','pma','ivf','procréat'] },
+    { label: 'Fertility specialist', slug: 'gynecologue-medical',      icon: '🌱',
+      keywords: ['fertilit','reproduct','pma','ivf','fécond','procréat','assisted','cecos'] },
+    { label: 'Endocrinologist',     slug: 'endocrinologue',           icon: '🧬',
+      keywords: ['endocrin','hormon','thyro','diabet','métabol','metabol'] },
+  ]
+}
+
+// Single broad Overpass query — filter client-side by keywords (more reliable)
+async function fetchHealthcareFacilities(lat, lon, radiusM = 20000) {
+  const query = `
+    [out:json][timeout:20];
+    (
+      node["amenity"~"^(clinic|hospital|doctors)$"](around:${radiusM},${lat},${lon});
+      way["amenity"~"^(clinic|hospital)$"](around:${radiusM},${lat},${lon});
+      node["healthcare"~"."](around:${radiusM},${lat},${lon});
+      way["healthcare"~"."](around:${radiusM},${lat},${lon});
+    );
+    out center 80;
+  `
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    body: `data=${encodeURIComponent(query)}`,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  })
+  const data = await res.json()
+  const seen = new Set()
+  return (data.elements || [])
+    .map(el => {
+      const elLat = el.lat ?? el.center?.lat
+      const elLon = el.lon ?? el.center?.lon
+      const name = el.tags?.name || el.tags?.['name:fr'] || ''
+      if (!name || seen.has(el.id)) return null
+      seen.add(el.id)
+      return {
+        id: el.id,
+        name,
+        address: [
+          el.tags?.['addr:housenumber'],
+          el.tags?.['addr:street'],
+          el.tags?.['addr:postcode'],
+          el.tags?.['addr:city'],
+        ].filter(Boolean).join(' ') || null,
+        type: el.tags?.amenity || el.tags?.healthcare || '',
+        nameLower: name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''),
+        lat: elLat, lon: elLon,
+        distKm: elLat && elLon ? haversineKm(lat, lon, elLat, elLon) : 99,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.distKm - b.distKm)
+}
+
+function filterBySpecialty(facilities, keywords) {
+  const normalizeKw = kw => kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const normKw = keywords.map(normalizeKw)
+  const matching = facilities.filter(f => normKw.some(k => f.nameLower.includes(k)))
+  // If no specialty match, fall back to all facilities (so list is never empty)
+  return matching.length > 0 ? matching.slice(0, 12) : facilities.slice(0, 12)
+}
+
+// ─── Specialist sheet ─────────────────────────────────────────
+function SpecialistSheet({ visible, onClose, documentType }) {
+  const insets = useSafeAreaInsets()
+  const slideY = useRef(new Animated.Value(SCREEN_HEIGHT)).current
+  const bgOp   = useRef(new Animated.Value(0)).current
+
+  const [phase, setPhase]           = useState('idle')
+  const [location, setLocation]     = useState(null)
+  const [activeSpec, setActiveSpec] = useState(0)
+  const [allFacilities, setAllFacilities] = useState([])  // raw broad results
+  const specialties = getSpecialties(documentType)
+
+  // Reset and re-geolocate every time sheet opens
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(slideY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }),
+        Animated.timing(bgOp,   { toValue: 1, duration: 220, useNativeDriver: true }),
+      ]).start()
+      setPhase('idle')
+      setLocation(null)
+      setAllFacilities([])
+      setActiveSpec(0)
+      startSearch()
+    } else {
+      Animated.parallel([
+        Animated.timing(slideY, { toValue: SCREEN_HEIGHT, duration: 260, useNativeDriver: true }),
+        Animated.timing(bgOp,   { toValue: 0, duration: 220, useNativeDriver: true }),
+      ]).start()
+    }
+  }, [visible])
+
+  async function startSearch() {
+    setPhase('locating')
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync()
+      if (status !== 'granted') { setPhase('error'); return }
+
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+      const { latitude: lat, longitude: lon } = pos.coords
+
+      const [geo] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon })
+      const street = [geo?.streetNumber, geo?.street].filter(Boolean).join(' ')
+      const city   = geo?.city || geo?.subregion || geo?.region || ''
+      const label  = [street, city].filter(Boolean).join(', ')
+      setLocation({ label, city, lat, lon })
+      setPhase('searching')
+
+      // Broad fetch once — filter per tab client-side
+      const facilities = await fetchHealthcareFacilities(lat, lon, 20000)
+      setAllFacilities(facilities)
+      setPhase('results')
+    } catch {
+      setPhase('error')
+    }
+  }
+
+  // Filtered results for active tab — instant, no extra network call
+  const currentResults = allFacilities.length > 0
+    ? filterBySpecialty(allFacilities, specialties[activeSpec].keywords)
+    : []
+
+  function openDoctolib(specialtySlug, city) {
+    const citySlug = slugify(city)
+    const url = citySlug
+      ? `https://www.doctolib.fr/${specialtySlug}/${citySlug}`
+      : `https://www.doctolib.fr/${specialtySlug}`
+    Linking.openURL(url)
+  }
+
+  function openMaps(name, address) {
+    const q = encodeURIComponent(`${name} ${address}`)
+    Linking.openURL(Platform.OS === 'ios'
+      ? `maps://maps.apple.com/?q=${q}`
+      : `https://maps.google.com/?q=${q}`)
+  }
+
+  const showDoctolib = phase !== 'idle' && phase !== 'locating' && phase !== 'error'
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[sp.backdrop, { opacity: bgOp }]}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
+      </Animated.View>
+
+      <Animated.View style={[sp.sheet, { transform: [{ translateY: slideY }], paddingBottom: insets.bottom + 16 }]}>
+        <View style={sp.handle} />
+
+        <View style={sp.headerRow}>
+          <Text style={sp.title}>Specialists near you</Text>
+          <TouchableOpacity onPress={onClose} style={sp.closeBtn}>
+            <Text style={sp.closeX}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        {location?.label ? (
+          <View style={sp.locationChip}>
+            <Text style={sp.locationText}>📍 {location.label}</Text>
+          </View>
+        ) : null}
+
+        {/* Specialty tabs */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={sp.tabsScroll} contentContainerStyle={sp.tabs}>
+          {specialties.map((spec, i) => (
+            <TouchableOpacity key={i} style={[sp.tab, activeSpec === i && sp.tabActive]} onPress={() => setActiveSpec(i)}>
+              <Text style={[sp.tabText, activeSpec === i && sp.tabTextActive]}>{spec.icon} {spec.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Content */}
+        <ScrollView style={sp.scroll} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+
+          {/* Doctolib CTA — changes with active tab */}
+          {showDoctolib && (
+            <TouchableOpacity
+              style={sp.doctolibBtn}
+              onPress={() => openDoctolib(specialties[activeSpec].slug, location?.city || '')}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={sp.doctolibTitle}>Book on Doctolib</Text>
+                <Text style={sp.doctolibSub}>{specialties[activeSpec].label}{location?.label ? ` · ${location.city}` : ''}</Text>
+              </View>
+              <Text style={sp.doctolibArrow}>→</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Loading states */}
+          {phase === 'locating' && (
+            <View style={sp.loadingCard}>
+              <ActivityIndicator color={colors.blue} />
+              <Text style={sp.loadingText}>Getting your location…</Text>
+            </View>
+          )}
+          {phase === 'searching' && (
+            <View style={sp.loadingCard}>
+              <ActivityIndicator color={colors.blue} />
+              <Text style={sp.loadingText}>Searching healthcare facilities nearby…</Text>
+            </View>
+          )}
+          {phase === 'error' && (
+            <View style={sp.errorCard}>
+              <Text style={sp.errorText}>Unable to access your location.</Text>
+              <TouchableOpacity style={sp.retryBtn} onPress={startSearch}>
+                <Text style={sp.retryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Results */}
+          {phase === 'results' && currentResults.map((r, i) => (
+            <View key={r.id || i} style={sp.resultCard}>
+              <View style={sp.resultLeft}>
+                <Text style={sp.resultName}>{r.name}</Text>
+                {r.address && <Text style={sp.resultAddr}>{r.address}</Text>}
+                <View style={sp.resultTagRow}>
+                  {r.type ? <View style={sp.resultTag}><Text style={sp.resultTagText}>{r.type}</Text></View> : null}
+                  {r.distKm < 90 && <View style={sp.resultDist}><Text style={sp.resultDistText}>{r.distKm < 1 ? `${Math.round(r.distKm * 1000)}m` : `${r.distKm.toFixed(1)} km`}</Text></View>}
+                </View>
+              </View>
+              <TouchableOpacity style={sp.mapsBtn} onPress={() => openMaps(r.name, r.address)}>
+                <Text style={sp.mapsBtnText}>🗺</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+
+        </ScrollView>
+      </Animated.View>
+    </Modal>
+  )
+}
 
 // ─── Typing dots animation ───────────────────────────────────
 function TypingDots() {
@@ -41,80 +302,21 @@ function TypingDots() {
   )
 }
 
-const SWIPE_THRESHOLD = 80
-const { width: SCREEN_WIDTH } = Dimensions.get('window')
-
-// ─── Question item (swipe-to-delete) ────────────────────────
-function QuestionItem({ q, onToggle, onDelete, entryAnim }) {
-  const translateX = useRef(new Animated.Value(0)).current
-  const deleteScale = useRef(new Animated.Value(0)).current
-  const itemHeight  = useRef(new Animated.Value(1)).current   // scale trick for collapse
-  const rowHeight   = useRef(null)
-
-  const panResponder = useRef(PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) =>
-      Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
-    onPanResponderMove: (_, g) => {
-      if (g.dx > 0) return  // only left
-      translateX.setValue(g.dx)
-      const progress = Math.min(Math.abs(g.dx) / SWIPE_THRESHOLD, 1)
-      deleteScale.setValue(progress)
-    },
-    onPanResponderRelease: (_, g) => {
-      if (g.dx < -SWIPE_THRESHOLD) {
-        // commit delete: slide out then collapse
-        Animated.parallel([
-          Animated.timing(translateX, { toValue: -SCREEN_WIDTH, duration: 220, useNativeDriver: true }),
-          Animated.timing(deleteScale, { toValue: 1.2, duration: 220, useNativeDriver: true }),
-        ]).start(() => {
-          Animated.timing(itemHeight, { toValue: 0, duration: 180, useNativeDriver: false }).start(onDelete)
-        })
-      } else {
-        Animated.parallel([
-          Animated.spring(translateX, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }),
-          Animated.spring(deleteScale, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }),
-        ]).start()
-      }
-    },
-  })).current
-
+// ─── Question item ───────────────────────────────────────────
+function QuestionItem({ q, i, onToggle, entryAnim }) {
   return (
-    <Animated.View
-      style={{
-        opacity: entryAnim,
-        transform: [{ translateY: entryAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
-        maxHeight: itemHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 120] }),
-        overflow: 'hidden',
-        marginBottom: itemHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 6] }),
-      }}
-    >
-      <View style={{ position: 'relative' }}>
-        {/* Delete background */}
-        <View style={s.deleteBack} pointerEvents="none">
-          <Animated.View style={[s.deleteBtn, { transform: [{ scale: deleteScale }] }]}>
-            <Text style={s.deleteIcon}>🗑</Text>
-          </Animated.View>
+    <Animated.View style={{ opacity: entryAnim, transform: [{ translateY: entryAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+      <TouchableOpacity style={[s.qItem, q.checked && s.qItemOn]} onPress={onToggle} activeOpacity={0.75}>
+        <View style={[s.qCheck, q.checked && s.qCheckOn]}>
+          {q.checked && <Text style={{ color: colors.white, fontSize: 11, fontWeight: font.bold }}>✓</Text>}
         </View>
-
-        {/* Swipeable row */}
-        <Animated.View
-          style={{ transform: [{ translateX }] }}
-          {...panResponder.panHandlers}
-        >
-          <TouchableOpacity style={[s.qItem, q.checked && s.qItemOn]} onPress={onToggle} activeOpacity={0.75}>
-            <View style={[s.qCheck, q.checked && s.qCheckOn]}>
-              {q.checked && <Text style={{ color: colors.white, fontSize: 11, fontWeight: font.bold }}>✓</Text>}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.qText}>{q.text}</Text>
-              {q.badge && (
-                <View style={s.qBadge}><Text style={s.qBadgeText}>{q.badge}</Text></View>
-              )}
-            </View>
-            <Text style={s.swipeHint}>‹</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.qText}>{q.text}</Text>
+          {q.badge && (
+            <View style={s.qBadge}><Text style={s.qBadgeText}>{q.badge}</Text></View>
+          )}
+        </View>
+      </TouchableOpacity>
     </Animated.View>
   )
 }
@@ -131,6 +333,7 @@ export default function PrepareScreen() {
   const [questionAnims, setQuestionAnims] = useState([])
   const [newQ, setNewQ] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [showSpecialist, setShowSpecialist] = useState(false)
 
   // If questions already generated (came back to this tab), show them
   useEffect(() => {
@@ -172,12 +375,7 @@ export default function PrepareScreen() {
     setQuestions(prev => prev.map((q, idx) => idx === i ? { ...q, checked: !q.checked } : q))
   }
 
-  function deleteQuestion(i) {
-    setQuestions(prev => prev.filter((_, idx) => idx !== i))
-    setQuestionAnims(prev => prev.filter((_, idx) => idx !== i))
-  }
-
-  function addQuestion() {
+function addQuestion() {
     if (!newQ.trim()) return
     const newAnim = new Animated.Value(0)
     setQuestionAnims(prev => [...prev, newAnim])
@@ -237,7 +435,7 @@ export default function PrepareScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <TouchableOpacity style={s.findBtn}>
+                <TouchableOpacity style={s.findBtn} onPress={() => setShowSpecialist(true)}>
                   <Text style={s.findBtnText}>🔍 Find a specialist near me</Text>
                 </TouchableOpacity>
               </>
@@ -294,13 +492,13 @@ export default function PrepareScreen() {
               </View>
               <Text style={s.cardSub}>Generated based on your results. Select the ones you want to bring.</Text>
 
-              <View style={{ gap: 0, marginTop: 6 }}>
+              <View style={{ gap: 6, marginTop: 6 }}>
                 {questions.map((q, i) => (
                   <QuestionItem
                     key={i}
                     q={q}
+                    i={i}
                     onToggle={() => toggle(i)}
-                    onDelete={() => deleteQuestion(i)}
                     entryAnim={questionAnims[i] || new Animated.Value(1)}
                   />
                 ))}
@@ -363,6 +561,12 @@ export default function PrepareScreen() {
 
         </ScrollView>
       </View>
+
+      <SpecialistSheet
+        visible={showSpecialist}
+        onClose={() => setShowSpecialist(false)}
+        documentType={analysisResult?.documentType}
+      />
     </KeyboardAvoidingView>
   )
 }
@@ -416,6 +620,49 @@ function buildPDFHtml({ analysisResult, questions, appointmentDate }) {
   </body></html>`
 }
 
+// ─── Specialist sheet styles ──────────────────────────────────
+const sp = StyleSheet.create({
+  backdrop:       { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.48)' },
+  sheet:          { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: SCREEN_HEIGHT * 0.82 },
+  handle:         { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.lightgray, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+  headerRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10 },
+  title:          { flex: 1, fontSize: 16, fontWeight: font.black, color: colors.dark },
+  closeBtn:       { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.lightgray, alignItems: 'center', justifyContent: 'center' },
+  closeX:         { fontSize: 11, color: colors.mid },
+  locationChip:   { marginHorizontal: 16, marginBottom: 8, backgroundColor: 'rgba(64,86,244,0.07)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, alignSelf: 'flex-start' },
+  locationText:   { fontSize: 12, fontWeight: font.semibold, color: colors.blue },
+  tabsScroll:     { flexShrink: 0 },
+  tabs:           { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  tab:            { backgroundColor: colors.lightgray, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7 },
+  tabActive:      { backgroundColor: colors.blue },
+  tabText:        { fontSize: 12, fontWeight: font.semibold, color: colors.mid },
+  tabTextActive:  { color: colors.white },
+  scroll:         { flex: 1 },
+  doctolibBtn:    { backgroundColor: colors.blue, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  doctolibTitle:  { fontSize: 14, fontWeight: font.black, color: colors.white },
+  doctolibSub:    { fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
+  doctolibArrow:  { fontSize: 20, color: 'rgba(255,255,255,0.7)' },
+  loadingCard:    { flexDirection: 'row', gap: 12, alignItems: 'center', backgroundColor: colors.lightgray, borderRadius: 14, padding: 16 },
+  loadingText:    { fontSize: 13, color: colors.mid },
+  errorCard:      { backgroundColor: 'rgba(244,96,124,0.08)', borderRadius: 14, padding: 16, gap: 10 },
+  errorText:      { fontSize: 13, color: colors.coral },
+  retryBtn:       { backgroundColor: colors.coral, borderRadius: 10, padding: 10, alignItems: 'center' },
+  retryText:      { fontSize: 12, fontWeight: font.bold, color: colors.white },
+  emptyCard:      { backgroundColor: colors.lightgray, borderRadius: 14, padding: 16 },
+  emptyText:      { fontSize: 13, color: colors.mid, lineHeight: 20 },
+  resultCard:     { backgroundColor: colors.lightgray, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  resultLeft:     { flex: 1, gap: 3 },
+  resultName:     { fontSize: 13, fontWeight: font.bold, color: colors.dark },
+  resultAddr:     { fontSize: 11, color: colors.mid, lineHeight: 16 },
+  resultTagRow:   { flexDirection: 'row', gap: 6, marginTop: 4 },
+  resultTag:      { backgroundColor: 'rgba(64,86,244,0.1)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  resultTagText:  { fontSize: 9, color: colors.blue, fontWeight: font.semibold },
+  resultDist:     { backgroundColor: 'rgba(0,201,153,0.12)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  resultDistText: { fontSize: 9, color: colors.teal, fontWeight: font.bold },
+  mapsBtn:        { width: 38, height: 38, backgroundColor: colors.white, borderRadius: 12, alignItems: 'center', justifyContent: 'center', ...shadow.sm },
+  mapsBtnText:    { fontSize: 18 },
+})
+
 // ─── Styles ──────────────────────────────────────────────────
 const ty = StyleSheet.create({
   row: { flexDirection: 'row', gap: 4, alignItems: 'center' },
@@ -459,17 +706,13 @@ const s = StyleSheet.create({
   generatingStepRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   generatingStepText: { fontSize: 13, color: colors.dark },
   // Questions
-  qItem: { flexDirection: 'row', gap: 10, backgroundColor: colors.lightgray, borderRadius: 12, padding: 12, borderWidth: 1.5, borderColor: 'transparent', alignItems: 'center' },
+  qItem: { flexDirection: 'row', gap: 10, backgroundColor: colors.lightgray, borderRadius: 12, padding: 12, borderWidth: 1.5, borderColor: 'transparent' },
   qItemOn: { borderColor: colors.teal, backgroundColor: 'rgba(0,201,153,0.06)' },
   qCheck: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: 'rgba(0,0,0,0.15)', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
   qCheckOn: { backgroundColor: colors.teal, borderColor: colors.teal },
-  qText: { fontSize: 12, color: colors.dark, lineHeight: 18, flex: 1 },
+  qText: { fontSize: 12, color: colors.dark, lineHeight: 18 },
   qBadge: { marginTop: 4, backgroundColor: 'rgba(0,201,153,0.1)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start' },
   qBadgeText: { fontSize: 9, fontWeight: font.bold, color: colors.teal },
-  swipeHint: { fontSize: 16, color: 'rgba(0,0,0,0.12)', marginLeft: 4 },
-  deleteBack: { ...StyleSheet.absoluteFillObject, backgroundColor: '#FF3B47', borderRadius: 12, alignItems: 'flex-end', justifyContent: 'center', paddingRight: 18 },
-  deleteBtn: { alignItems: 'center', justifyContent: 'center' },
-  deleteIcon: { fontSize: 20 },
   // Add custom question
   addQRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 6 },
   addQInput: { flex: 1, backgroundColor: colors.lightgray, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: colors.dark },

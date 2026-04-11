@@ -26,24 +26,45 @@ function GaugeBar({ bio }) {
   useEffect(() => {
     Animated.timing(fillW, { toValue: valuePct, duration: 650, delay: 150, useNativeDriver: false }).start()
   }, [])
+  const color = sc(bio.status)
+
   return (
     <View style={g.wrap}>
+      {/* Cursor above the track */}
+      <View style={g.cursorRow}>
+        <Animated.View style={[
+          g.cursorWrap,
+          { left: fillW.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) },
+        ]}>
+          <View style={[g.cursorBubble, { backgroundColor: color }]}>
+            <Text style={g.cursorText}>{bio.value} {bio.unit}</Text>
+          </View>
+          <View style={[g.cursorTick, { backgroundColor: color }]} />
+        </Animated.View>
+      </View>
+
       <View style={g.track}>
         {hasNorm && <View style={[g.normZone, { left: `${normPct}%`, right: 0 }]} />}
-        <Animated.View style={[g.fill, { width: fillW.interpolate({ inputRange: [0,100], outputRange: ['0%','100%'] }), backgroundColor: sc(bio.status) }]} />
+        <Animated.View style={[g.fill, { width: fillW.interpolate({ inputRange: [0,100], outputRange: ['0%','100%'] }), backgroundColor: color }]} />
         {hasNorm && <View style={[g.normLine, { left: `${normPct}%` }]} />}
       </View>
       <View style={g.labelsRow}>
-        <Text style={g.edge}>0 {bio.unit}</Text>
+        <Text style={g.edgeLeft}>0 {bio.unit}</Text>
         {hasNorm && (
-          <Text style={[g.normLabel, { left: `${normPct}%` }]}>min {norm} {bio.unit}</Text>
+          <Text
+            style={[
+              g.normLabel,
+              normPct >= 20 && normPct <= 80 && { left: `${normPct}%` },
+              normPct < 20  && { left: 0,         transform: [] },
+              normPct > 80  && { left: undefined,  right: 0, transform: [] },
+            ]}
+          >
+            min {norm} {bio.unit}
+          </Text>
         )}
-        <Text style={g.edge}>{max} {bio.unit}</Text>
+        <Text style={g.edgeRight}>{max} {bio.unit}</Text>
       </View>
       <View style={g.pills}>
-        <View style={[g.pill, { backgroundColor: sbg(bio.status) }]}>
-          <Text style={[g.pillTxt, { color: sc(bio.status) }]}>Your value: {bio.value} {bio.unit}</Text>
-        </View>
         <View style={[g.pill, { backgroundColor: sbg(bio.status) }]}>
           <Text style={[g.pillTxt, { color: sc(bio.status) }]}>{slabel(bio.status)}</Text>
         </View>
@@ -243,13 +264,19 @@ export default function ResultsScreen() {
 
 const g = StyleSheet.create({
   wrap: { marginVertical: 14 },
+  cursorRow: { position: 'relative', height: 34, marginBottom: 2 },
+  cursorWrap: { position: 'absolute', alignItems: 'center', transform: [{ translateX: -20 }] },
+  cursorBubble: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  cursorText: { fontSize: 10, fontWeight: font.bold, color: colors.white },
+  cursorTick: { width: 2, height: 6, borderRadius: 1, alignSelf: 'center' },
   track: { height: 14, backgroundColor: colors.lightgray, borderRadius: 7, overflow: 'hidden', position: 'relative', marginBottom: 6 },
   normZone: { position: 'absolute', top: 0, bottom: 0, backgroundColor: 'rgba(0,201,153,0.15)' },
   fill: { height: '100%', borderRadius: 7 },
   normLine: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.teal },
-  labelsRow: { position: 'relative', height: 16 },
-  edge: { position: 'absolute', fontSize: 9, color: colors.mid },
-  normLabel: { position: 'absolute', fontSize: 9, color: colors.teal, fontWeight: font.semibold, transform: [{ translateX: -18 }] },
+  labelsRow: { position: 'relative', height: 18, marginTop: 4 },
+  edgeLeft:  { position: 'absolute', left: 0,  fontSize: 9, color: colors.mid },
+  edgeRight: { position: 'absolute', right: 0, fontSize: 9, color: colors.mid },
+  normLabel: { position: 'absolute', left: '50%', fontSize: 9, color: colors.teal, fontWeight: font.semibold, transform: [{ translateX: -24 }] },
   pills: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
   pill: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 },
   pillTxt: { fontSize: 12, fontWeight: font.bold },
