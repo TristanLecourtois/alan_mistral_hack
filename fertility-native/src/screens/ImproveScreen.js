@@ -1,17 +1,49 @@
-import { useState, useRef, useEffect } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, Animated, Modal, StyleSheet, Dimensions } from 'react-native'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import {
+  View, Text, TouchableOpacity, ScrollView, Animated, Modal, StyleSheet, Dimensions, ActivityIndicator, Alert,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useApp } from '../context/AppContext'
 import { DEMO_BIOMETRICS } from '../services/thryveService'
+import { generateImprovementPlan } from '../services/mistralService'
 import { colors, font, shadow } from '../theme'
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window')
 
-function sc(s) { return s === 'ok' ? colors.teal : s === 'warn' ? colors.amber : colors.coral }
-function sbg(s) { return s === 'ok' ? 'rgba(0,201,153,0.12)' : s === 'warn' ? 'rgba(245,158,11,0.12)' : 'rgba(244,96,124,0.12)' }
+function sc(sev) { return sev === 'ok' ? colors.teal : sev === 'warn' ? colors.amber : colors.coral }
+function sbg(sev) { return sev === 'ok' ? 'rgba(0,201,153,0.12)' : sev === 'warn' ? 'rgba(245,158,11,0.12)' : 'rgba(244,96,124,0.12)' }
 
-// ─── Slide-up sheet ──────────────────────────────────────────
+// ─── Typing dots ─────────────────────────────────────────────
+function TypingDots() {
+  const d0 = useRef(new Animated.Value(0)).current
+  const d1 = useRef(new Animated.Value(0)).current
+  const d2 = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    const dots = [d0, d1, d2]
+    const loops = dots.map((d, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 140),
+          Animated.timing(d, { toValue: 1, duration: 280, useNativeDriver: true }),
+          Animated.timing(d, { toValue: 0, duration: 280, useNativeDriver: true }),
+          Animated.delay(420),
+        ])
+      )
+    )
+    loops.forEach(l => l.start())
+    return () => loops.forEach(l => l.stop())
+  }, [])
+  return (
+    <View style={ty.row}>
+      {[d0, d1, d2].map((d, i) => (
+        <Animated.View key={i} style={[ty.dot, { opacity: d, transform: [{ scale: d.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] }) }] }]} />
+      ))}
+    </View>
+  )
+}
+
+// ─── Sheet ───────────────────────────────────────────────────
 function Sheet({ visible, onClose, children }) {
   const slideY = useRef(new Animated.Value(SCREEN_HEIGHT)).current
   const bgOp = useRef(new Animated.Value(0)).current
@@ -42,28 +74,27 @@ function Sheet({ visible, onClose, children }) {
   )
 }
 
-// ─── Recommendation sheet ─────────────────────────────────────
-function RecoSheet({ reco, visible, onClose, onAdd, added }) {
-  if (!reco) return null
+function HabitDetailSheet({ habit, visible, onClose, onAdd, added }) {
+  if (!habit) return null
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={sh.content}>
         <View style={sh.row}>
-          <Text style={{ fontSize: 28 }}>{reco.icon}</Text>
+          <Text style={{ fontSize: 28 }}>{habit.icon}</Text>
           <View style={{ flex: 1 }}>
-            <Text style={sh.title}>{reco.text}</Text>
+            <Text style={sh.title}>{habit.text}</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={sh.closeBtn}><Text style={sh.closeX}>✕</Text></TouchableOpacity>
         </View>
         <View style={sh.card}>
           <Text style={sh.cardTitle}>📈 Potential impact</Text>
-          <Text style={sh.cardText}>{reco.impact}</Text>
+          <Text style={sh.cardText}>{habit.impact}</Text>
         </View>
         <View style={sh.card}>
           <Text style={sh.cardTitle}>⏱ Timeline</Text>
-          <Text style={sh.cardText}>{reco.timeline}</Text>
+          <Text style={sh.cardText}>{habit.timeline}</Text>
         </View>
-        <TouchableOpacity style={[sh.addBtn, added && sh.addBtnDone]} onPress={() => { onAdd(reco); onClose() }} disabled={added}>
+        <TouchableOpacity style={[sh.addBtn, added && sh.addBtnDone]} onPress={() => { onAdd(habit); onClose() }} disabled={added}>
           <Text style={[sh.addBtnText, added && { color: colors.teal }]}>
             {added ? '✓ Added to my habits' : '＋ Add to my habits'}
           </Text>
@@ -87,64 +118,137 @@ function MetricTile({ icon, label, value, unit, trend, trendStatus }) {
   )
 }
 
-// ─── Wearable impact bar ──────────────────────────────────────
-function ImpactBar({ label, withoutVal, withVal, unit, connected }) {
+// ─── Projection (bottom) ─────────────────────────────────────
+function ProjectionCard({ score, habitPoints, wearableBonus, selectedCount, totalHabits, connected }) {
   const barW = useRef(new Animated.Value(0)).current
   useEffect(() => {
-    Animated.timing(barW, { toValue: 1, duration: 900, delay: 200, useNativeDriver: false }).start()
-  }, [])
+    barW.setValue(0)
+    Animated.timing(barW, { toValue: score / 100, duration: 700, useNativeDriver: false }).start()
+  }, [score])
+
   return (
-    <View style={im.row}>
-      <View style={im.trackWrap}>
-        <Text style={im.label}>{label}</Text>
-        <View style={im.track}>
-          <Animated.View style={[im.fill, {
-            width: barW.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${withoutVal}%`] }),
-            backgroundColor: connected ? colors.teal : colors.mid,
-          }]} />
-          {connected && (
-            <Animated.View style={[im.fill2, {
-              width: barW.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${withVal - withoutVal}%`] }),
-              backgroundColor: 'rgba(0,201,153,0.3)',
-            }]} />
-          )}
+    <View style={[proj.card, shadow.md]}>
+      <Text style={proj.title}>Expected impact</Text>
+      <Text style={proj.sub}>Based on your selected habits{connected ? ' and wearable tracking' : ''}.</Text>
+
+      <View style={proj.scoreRow}>
+        <Text style={proj.scoreNum}>{score}</Text>
+        <Text style={proj.scoreOut}>/ 100</Text>
+      </View>
+
+      <View style={proj.track}>
+        <Animated.View style={[proj.fill, { width: barW.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} />
+      </View>
+
+      <View style={proj.breakdown}>
+        <View style={proj.breakRow}>
+          <Text style={proj.breakLabel}>Habits selected</Text>
+          <Text style={proj.breakVal}>{selectedCount}/{totalHabits} · +{habitPoints} pts</Text>
         </View>
-        <View style={im.labelsRow}>
-          <Text style={im.baselineLabel}>Without</Text>
-          {connected && <Text style={im.connectedLabel}>+{withVal - withoutVal}% with wearables</Text>}
+        <View style={proj.breakRow}>
+          <Text style={proj.breakLabel}>Wearable boost</Text>
+          <Text style={[proj.breakVal, !connected && { color: colors.mid }]}>
+            {connected ? `+${wearableBonus} pts` : 'Connect device for +pts'}
+          </Text>
         </View>
       </View>
     </View>
   )
 }
 
-// ─── Main screen ─────────────────────────────────────────────
 const METRICS_ICONS = { sleep: '😴', hrv: '💓', steps: '🚶', basalTemp: '🌡️' }
 const METRICS_LABELS = { sleep: 'Sleep', hrv: 'HRV', steps: 'Steps', basalTemp: 'Basal temp.' }
-const IMPACT_DATA = [
-  { label: 'Motility improvement', withoutVal: 42, withVal: 68 },
-  { label: 'Lifestyle compliance', withoutVal: 35, withVal: 72 },
-  { label: 'Appointment readiness', withoutVal: 50, withVal: 85 },
+
+const GEN_STEPS = [
+  'Reading your biomarkers',
+  'Matching evidence-based habits',
+  'Estimating impact windows',
+  'Drafting your plan…',
 ]
 
+function computeProjection(habits, selectedLabels, connected) {
+  const selected = habits.filter(h => selectedLabels.has(h.habitLabel))
+  const habitPoints = Math.round(selected.reduce((s, h) => s + (h.impactContribution || 10), 0))
+  const wearableBonus = connected ? Math.min(28, Math.round(habitPoints * 0.5)) : 0
+  const base = 22
+  const raw = base + Math.round(habitPoints * 0.65) + wearableBonus
+  const score = Math.min(94, Math.max(18, raw))
+  return { score, habitPoints, wearableBonus }
+}
+
 export default function ImproveScreen() {
-  const { analysisResult, habits, addHabit } = useApp()
+  const { analysisResult, onboardingAnswers, habits, addHabit, improvementPlan, setImprovementPlan } = useApp()
   const insets = useSafeAreaInsets()
 
-  const [connected, setConnected] = useState(false)
-  const [selectedDevice, setSelectedDevice] = useState(null)
-  const [selectedReco, setSelectedReco] = useState(null)
   const [devices, setDevices] = useState(DEMO_BIOMETRICS.devices)
+  const connected = devices.some(d => d.connected)
 
-  const recommendations = analysisResult?.recommendations || []
+  const [phase, setPhase] = useState(() => (improvementPlan?.habits?.length ? 'ready' : 'idle'))
+  const [planHabits, setPlanHabits] = useState(() => improvementPlan?.habits || [])
+  const [selectedLabels, setSelectedLabels] = useState(() => {
+    const set = new Set()
+    ;(improvementPlan?.habits || []).forEach(h => set.add(h.habitLabel))
+    return set
+  })
+  const [habitAnims, setHabitAnims] = useState(() =>
+    (improvementPlan?.habits || []).map(() => new Animated.Value(1))
+  )
+  const [detailHabit, setDetailHabit] = useState(null)
+
+  const connectDevice = useCallback((device) => {
+    setDevices(prev => prev.map(d => (d.id === device.id ? { ...d, connected: !d.connected } : d)))
+  }, [])
+
+  function toggleSelected(label) {
+    setSelectedLabels(prev => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
+  }
+
+  function animateHabitsIn(list) {
+    const anims = list.map(() => new Animated.Value(0))
+    setHabitAnims(anims)
+    list.forEach((_, i) => {
+      setTimeout(() => {
+        Animated.spring(anims[i], { toValue: 1, tension: 68, friction: 9, useNativeDriver: true }).start()
+      }, i * 100)
+    })
+  }
+
+  async function handleGenerate() {
+    setPhase('generating')
+    try {
+      const result = await generateImprovementPlan(analysisResult, onboardingAnswers, connected)
+      const list = result.habits || []
+      setImprovementPlan(result)
+      setPlanHabits(list)
+      setSelectedLabels(new Set(list.map(h => h.habitLabel)))
+      setPhase('ready')
+      animateHabitsIn(list)
+    } catch {
+      Alert.alert('Generation failed', 'Please try again.')
+      setPhase('idle')
+    }
+  }
+
+  function handleRegenerate() {
+    setImprovementPlan(null)
+    setPlanHabits([])
+    setSelectedLabels(new Set())
+    setHabitAnims([])
+    setPhase('idle')
+  }
+
+  const projection = useMemo(
+    () => computeProjection(planHabits, selectedLabels, connected),
+    [planHabits, selectedLabels, connected]
+  )
+
   const metrics = DEMO_BIOMETRICS.metrics
   const insights = DEMO_BIOMETRICS.insights
-
-  function connectDevice(device) {
-    setDevices(prev => prev.map(d => d.id === device.id ? { ...d, connected: !d.connected } : d))
-    const anyConnected = devices.some(d => d.id !== device.id && d.connected) || !device.connected
-    setConnected(anyConnected || !device.connected)
-  }
 
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
@@ -153,48 +257,21 @@ export default function ImproveScreen() {
         <Text style={s.title}>Improve my results</Text>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 12 }} showsVerticalScrollIndicator={false}>
-
-        {/* ── Recommendations ── */}
-        <Text style={s.sectionLabel}>WHAT YOU CAN DO NOW · tap for impact</Text>
-        {recommendations.map((r, i) => {
-          const added = habits.some(h => h.text === r.habitLabel)
-          return (
-            <TouchableOpacity key={i} style={[s.recoRow, shadow.sm]} onPress={() => setSelectedReco(r)} activeOpacity={0.78}>
-              <Text style={s.recoIcon}>{r.icon}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={s.recoText}>{r.text}</Text>
-                <Text style={s.recoTimeline}>{r.timeline}</Text>
-              </View>
-              {added
-                ? <View style={s.habitDone}><Text style={s.habitDoneText}>✓ habit</Text></View>
-                : <Text style={s.chevron}>›</Text>
-              }
-            </TouchableOpacity>
-          )
-        })}
-
-        {habits.length > 0 && (
-          <View style={[s.card, shadow.sm]}>
-            <Text style={s.cardHead}>⭐ My habits ({habits.length})</Text>
-            {habits.map((h, i) => (
-              <View key={i} style={s.habitRow}>
-                <Text style={{ fontSize: 16 }}>{h.icon}</Text>
-                <Text style={s.habitText}>{h.text}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* ── Connect wearables ── */}
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 28, gap: 14 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── 1. Wearables + impact message ── */}
+        <Text style={s.sectionLabel}>STEP 1 · CONNECT WEARABLES</Text>
         {!connected ? (
           <LinearGradient colors={['#1B2B6B', '#4056F4']} style={s.connectBanner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
             <Text style={s.connectEmoji}>⌚</Text>
             <View style={{ flex: 1 }}>
               <Text style={s.connectTitle}>Connect your wearable</Text>
-              <Text style={s.connectSub}>See your real-time data and get a personalized improvement plan.</Text>
+              <Text style={s.connectSub}>Track sleep, activity, and recovery so your plan stays grounded in real behaviour.</Text>
               <View style={s.impactPill}>
-                <Text style={s.impactPillText}>⚡ Up to +60% impact on your results</Text>
+                <Text style={s.impactPillText}>⚡ Up to +60% stronger personalization when connected</Text>
               </View>
             </View>
           </LinearGradient>
@@ -203,14 +280,13 @@ export default function ImproveScreen() {
             <Text style={s.connectEmoji}>✅</Text>
             <View style={{ flex: 1 }}>
               <Text style={s.connectTitle}>Wearable connected</Text>
-              <Text style={s.connectSub}>Your lifestyle data is now factored into your plan.</Text>
+              <Text style={s.connectSub}>Your projection below includes a wearable boost.</Text>
             </View>
           </LinearGradient>
         )}
 
-        {/* ── Device list ── */}
         <View style={[s.card, shadow.sm]}>
-          <Text style={s.cardHead}>📱 Connect your devices</Text>
+          <Text style={s.cardHead}>📱 Your devices</Text>
           {devices.map((device, i) => (
             <View key={device.id} style={[s.deviceRow, i < devices.length - 1 && s.deviceRowBorder]}>
               <Text style={s.deviceIcon}>{device.icon}</Text>
@@ -227,51 +303,33 @@ export default function ImproveScreen() {
           ))}
         </View>
 
-        {/* ── Impact visualization ── */}
-        <View style={[s.card, shadow.sm]}>
-          <Text style={s.cardHead}>📈 Projected impact with wearables</Text>
-          <Text style={s.cardSub}>{connected ? 'Based on your connected data' : 'Connect a device to activate personalized tracking'}</Text>
-          <View style={{ gap: 14, marginTop: 10 }}>
-            {IMPACT_DATA.map((item, i) => (
-              <ImpactBar key={i} {...item} connected={connected} />
-            ))}
-          </View>
-        </View>
-
-        {/* ── Wearable data & insights (when connected) ── */}
         {connected && (
           <>
-            <Text style={s.sectionLabel}>LIVE DATA · Updated just now</Text>
+            <Text style={s.sectionLabel}>LIVE DATA</Text>
             <View style={m.grid}>
-              {Object.entries(metrics).map(([key, m]) => (
+              {Object.entries(metrics).map(([key, met]) => (
                 <MetricTile
                   key={key}
                   icon={METRICS_ICONS[key]}
                   label={METRICS_LABELS[key]}
-                  value={m.value}
-                  unit={m.unit}
-                  trend={m.trend}
-                  trendStatus={m.trendStatus}
+                  value={met.value}
+                  unit={met.unit}
+                  trend={met.trend}
+                  trendStatus={met.trendStatus}
                 />
               ))}
             </View>
-
-            <Text style={s.sectionLabel}>INSIGHTS · What your data tells us</Text>
+            <Text style={s.sectionLabel}>INSIGHTS</Text>
             {insights.map((insight, i) => (
               <View key={i} style={[s.insightCard, shadow.sm, { borderLeftColor: sc(insight.severity) }]}>
                 <Text style={s.insightEmoji}>{insight.icon}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={s.insightTitle}>{insight.title}</Text>
                   <Text style={s.insightDesc}>{insight.desc}</Text>
-                  {insight.source && (
-                    <Text style={s.insightSource}>📖 {insight.source}</Text>
-                  )}
-                  {/* Link to exam result */}
+                  {insight.source && <Text style={s.insightSource}>📖 {insight.source}</Text>}
                   {insight.severity === 'warn' && (
                     <View style={[s.examImpact, { backgroundColor: sbg(insight.severity) }]}>
-                      <Text style={[s.examImpactText, { color: sc(insight.severity) }]}>
-                        ⚠ May affect your exam results
-                      </Text>
+                      <Text style={[s.examImpactText, { color: sc(insight.severity) }]}>May relate to your exam trends</Text>
                     </View>
                   )}
                 </View>
@@ -280,20 +338,134 @@ export default function ImproveScreen() {
           </>
         )}
 
+        {/* ── 2. Generate plan CTA ── */}
+        <Text style={s.sectionLabel}>STEP 2 · YOUR PLAN</Text>
+        {phase === 'idle' && (
+          <TouchableOpacity style={[s.genBtn, shadow.sm]} onPress={handleGenerate} activeOpacity={0.88}>
+            <LinearGradient colors={['#4056F4', '#7C5CFC']} style={s.genBtnGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+              <Text style={s.genBtnIcon}>✨</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.genBtnTitle}>Generate my plan & habits</Text>
+                <Text style={s.genBtnSub}>Personalized suggestions from your results — nothing pre-filled until you tap.</Text>
+              </View>
+              <Text style={s.genBtnArrow}>→</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+        {phase === 'generating' && (
+          <View style={[s.genCard, shadow.sm]}>
+            <View style={s.genHead}>
+              <View style={s.genAvatar}><Text style={{ fontSize: 16 }}>🤖</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.genTitle}>Building your habit suggestions…</Text>
+                <Text style={s.genSub}>This uses your report context{connected ? ' and wearable status' : ''}.</Text>
+              </View>
+              <ActivityIndicator color={colors.blue} />
+            </View>
+            <View style={s.genSteps}>
+              {GEN_STEPS.map((label, i) => (
+                <View key={i} style={s.genStepRow}>
+                  <TypingDots />
+                  <Text style={s.genStepText}>{label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {phase === 'ready' && planHabits.length > 0 && (
+          <View style={[s.card, shadow.sm]}>
+            <Text style={s.cardHead}>🎯 Suggested habits</Text>
+            {improvementPlan?.summary ? (
+              <Text style={s.planSummary}>{improvementPlan.summary}</Text>
+            ) : null}
+            <Text style={s.cardSub}>Tap a row to select for your projection. Tap › for details.</Text>
+
+            {planHabits.map((h, i) => {
+              const checked = selectedLabels.has(h.habitLabel)
+              const anim = habitAnims[i]
+              const added = habits.some(x => x.text === h.habitLabel)
+              if (!anim) return null
+              return (
+                <Animated.View
+                  key={h.habitLabel || i}
+                  style={{
+                    opacity: anim,
+                    transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+                  }}
+                >
+                  <View style={[s.habitRow, shadow.sm]}>
+                    <TouchableOpacity style={s.habitCheckWrap} onPress={() => toggleSelected(h.habitLabel)} activeOpacity={0.8}>
+                      <View style={[s.habitCheck, checked && s.habitCheckOn]}>
+                        {checked && <Text style={s.habitCheckMark}>✓</Text>}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.habitMain} onPress={() => toggleSelected(h.habitLabel)} activeOpacity={0.85}>
+                      <Text style={s.habitIcon}>{h.icon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.habitText}>{h.text}</Text>
+                        <Text style={s.habitMeta}>+{h.impactContribution || 10} impact pts · {h.timeline}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setDetailHabit(h)} style={s.habitChevBtn}>
+                      <Text style={s.habitChev}>›</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
+              )
+            })}
+
+            <TouchableOpacity style={s.regenBtn} onPress={handleRegenerate}>
+              <Text style={s.regenBtnText}>↺ Regenerate plan</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {habits.length > 0 && (
+          <View style={[s.card, shadow.sm]}>
+            <Text style={s.cardHead}>⭐ My habits ({habits.length})</Text>
+            {habits.map((h, i) => (
+              <View key={i} style={s.savedHabitRow}>
+                <Text style={{ fontSize: 16 }}>{h.icon}</Text>
+                <Text style={s.savedHabitText}>{h.text}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* ── Bottom: projection from choices ── */}
+        {phase === 'ready' && planHabits.length > 0 && (
+          <>
+            <Text style={s.sectionLabel}>EXPECTED IMPACT · YOUR CHOICES</Text>
+            <ProjectionCard
+              score={projection.score}
+              habitPoints={projection.habitPoints}
+              wearableBonus={projection.wearableBonus}
+              selectedCount={selectedLabels.size}
+              totalHabits={planHabits.length}
+              connected={connected}
+            />
+          </>
+        )}
       </ScrollView>
 
-      <RecoSheet
-        reco={selectedReco}
-        visible={!!selectedReco}
-        onClose={() => setSelectedReco(null)}
-        onAdd={r => addHabit({ text: r.habitLabel, icon: r.icon })}
-        added={selectedReco && habits.some(h => h.text === selectedReco.habitLabel)}
+      <HabitDetailSheet
+        habit={detailHabit}
+        visible={!!detailHabit}
+        onClose={() => setDetailHabit(null)}
+        onAdd={h => addHabit({ text: h.habitLabel, icon: h.icon })}
+        added={!!detailHabit && habits.some(x => x.text === detailHabit.habitLabel)}
       />
     </View>
   )
 }
 
-// ─── Styles ──────────────────────────────────────────────────
+const ty = StyleSheet.create({
+  row: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  dot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.blue },
+})
+
 const sh = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.48)' },
   container: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: SCREEN_HEIGHT * 0.75 },
@@ -321,16 +493,19 @@ const m = StyleSheet.create({
   tileLabel: { fontSize: 10, color: colors.mid, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
 })
 
-const im = StyleSheet.create({
-  row: { gap: 4 },
-  trackWrap: { gap: 6 },
-  label: { fontSize: 12, fontWeight: font.semibold, color: colors.dark },
-  track: { height: 10, backgroundColor: colors.lightgray, borderRadius: 5, flexDirection: 'row', overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 5 },
-  fill2: { height: '100%', borderRadius: 5 },
-  labelsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  baselineLabel: { fontSize: 9, color: colors.mid },
-  connectedLabel: { fontSize: 9, color: colors.teal, fontWeight: font.semibold },
+const proj = StyleSheet.create({
+  card: { backgroundColor: colors.white, borderRadius: 18, padding: 18, borderWidth: 2, borderColor: 'rgba(64,86,244,0.12)' },
+  title: { fontSize: 12, fontWeight: font.black, color: colors.navy, textTransform: 'uppercase', letterSpacing: 1.2 },
+  sub: { fontSize: 12, color: colors.mid, marginTop: 4, marginBottom: 14 },
+  scoreRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: 8 },
+  scoreNum: { fontSize: 44, fontWeight: font.black, color: colors.blue, lineHeight: 48 },
+  scoreOut: { fontSize: 14, color: colors.mid, fontWeight: font.semibold },
+  track: { height: 12, backgroundColor: colors.lightgray, borderRadius: 6, overflow: 'hidden', marginBottom: 16 },
+  fill: { height: '100%', borderRadius: 6, backgroundColor: colors.teal },
+  breakdown: { gap: 8 },
+  breakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  breakLabel: { fontSize: 12, color: colors.mid },
+  breakVal: { fontSize: 12, fontWeight: font.bold, color: colors.dark },
 })
 
 const s = StyleSheet.create({
@@ -340,28 +515,16 @@ const s = StyleSheet.create({
   title: { fontSize: 26, fontWeight: font.black, color: colors.navy },
   scroll: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
   sectionLabel: { fontSize: 10, fontWeight: font.bold, textTransform: 'uppercase', letterSpacing: 1.2, color: colors.mid },
-  // Recommendations
-  recoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.white, borderRadius: 14, padding: 14 },
-  recoIcon: { fontSize: 22 },
-  recoText: { fontSize: 13, color: colors.dark, lineHeight: 19, marginBottom: 2 },
-  recoTimeline: { fontSize: 10, color: colors.mid, fontStyle: 'italic' },
-  habitDone: { backgroundColor: 'rgba(0,201,153,0.1)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  habitDoneText: { fontSize: 10, fontWeight: font.bold, color: colors.teal },
-  chevron: { fontSize: 20, color: colors.mid },
-  // Habits card
-  card: { backgroundColor: colors.white, borderRadius: 16, padding: 16 },
-  cardHead: { fontSize: 14, fontWeight: font.black, color: colors.dark, marginBottom: 10 },
-  cardSub: { fontSize: 12, color: colors.mid, marginBottom: 4 },
-  habitRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
-  habitText: { fontSize: 13, color: colors.dark },
-  // Connect banner
   connectBanner: { borderRadius: 18, padding: 18, flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   connectEmoji: { fontSize: 28, marginTop: 2 },
   connectTitle: { fontSize: 16, fontWeight: font.black, color: colors.white, marginBottom: 5 },
   connectSub: { fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18, marginBottom: 10 },
   impactPill: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, alignSelf: 'flex-start' },
   impactPillText: { fontSize: 11, color: colors.white, fontWeight: font.bold },
-  // Devices
+  card: { backgroundColor: colors.white, borderRadius: 16, padding: 16 },
+  cardHead: { fontSize: 14, fontWeight: font.black, color: colors.dark, marginBottom: 8 },
+  cardSub: { fontSize: 12, color: colors.mid, lineHeight: 18, marginBottom: 8 },
+  planSummary: { fontSize: 12, color: colors.dark, lineHeight: 18, fontStyle: 'italic', marginBottom: 10, padding: 10, backgroundColor: colors.lightgray, borderRadius: 10 },
   deviceRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   deviceRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.06)' },
   deviceIcon: { fontSize: 20 },
@@ -370,7 +533,6 @@ const s = StyleSheet.create({
   deviceBtnConnected: { backgroundColor: 'rgba(0,201,153,0.12)', borderWidth: 1.5, borderColor: colors.teal },
   deviceBtnText: { fontSize: 12, fontWeight: font.semibold, color: colors.dark },
   deviceBtnTextConnected: { color: colors.teal },
-  // Insights
   insightCard: { backgroundColor: colors.white, borderRadius: 14, padding: 14, flexDirection: 'row', gap: 12, borderLeftWidth: 3 },
   insightEmoji: { fontSize: 22, marginTop: 2 },
   insightTitle: { fontSize: 13, fontWeight: font.black, color: colors.dark, marginBottom: 5 },
@@ -378,4 +540,33 @@ const s = StyleSheet.create({
   insightSource: { fontSize: 10, color: colors.mid, fontStyle: 'italic', marginBottom: 4 },
   examImpact: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' },
   examImpactText: { fontSize: 10, fontWeight: font.bold },
+  genBtn: { borderRadius: 16, overflow: 'hidden' },
+  genBtnGrad: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
+  genBtnIcon: { fontSize: 26 },
+  genBtnTitle: { fontSize: 16, fontWeight: font.black, color: colors.white, marginBottom: 4 },
+  genBtnSub: { fontSize: 12, color: 'rgba(255,255,255,0.78)', lineHeight: 17 },
+  genBtnArrow: { fontSize: 22, color: 'rgba(255,255,255,0.55)' },
+  genCard: { backgroundColor: colors.white, borderRadius: 16, padding: 16, borderWidth: 1.5, borderColor: 'rgba(64,86,244,0.12)' },
+  genHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  genAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' },
+  genTitle: { fontSize: 14, fontWeight: font.bold, color: colors.dark },
+  genSub: { fontSize: 11, color: colors.mid, marginTop: 2 },
+  genSteps: { gap: 10 },
+  genStepRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  genStepText: { fontSize: 13, color: colors.dark },
+  habitRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 8, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)' },
+  habitCheckWrap: { paddingRight: 4 },
+  habitCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: 'rgba(0,0,0,0.2)', alignItems: 'center', justifyContent: 'center' },
+  habitCheckOn: { backgroundColor: colors.teal, borderColor: colors.teal },
+  habitCheckMark: { color: colors.white, fontSize: 11, fontWeight: font.black },
+  habitMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  habitIcon: { fontSize: 20 },
+  habitText: { fontSize: 13, fontWeight: font.semibold, color: colors.dark, lineHeight: 18 },
+  habitMeta: { fontSize: 10, color: colors.mid, marginTop: 2 },
+  habitChevBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+  habitChev: { fontSize: 22, color: colors.mid },
+  regenBtn: { alignItems: 'center', paddingVertical: 10, marginTop: 4 },
+  regenBtnText: { fontSize: 12, color: colors.blue, fontWeight: font.semibold },
+  savedHabitRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
+  savedHabitText: { fontSize: 13, color: colors.dark },
 })

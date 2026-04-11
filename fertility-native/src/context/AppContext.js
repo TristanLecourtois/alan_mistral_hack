@@ -9,6 +9,8 @@ export function AppProvider({ children }) {
   const [generatedQuestions, setGeneratedQuestions] = useState(null)
   const [habits, setHabits] = useState([])
   const [appointmentDate, setAppointmentDate] = useState(null)
+  /** @type {null | { habits: Array, summary?: string, generatedAt?: string }} */
+  const [improvementPlan, setImprovementPlan] = useState(null)
 
   function addHabit(habit) {
     setHabits(prev => prev.find(h => h.text === habit.text) ? prev : [...prev, habit])
@@ -22,6 +24,7 @@ export function AppProvider({ children }) {
       generatedQuestions, setGeneratedQuestions,
       habits, addHabit,
       appointmentDate, setAppointmentDate,
+      improvementPlan, setImprovementPlan,
     }}>
       {children}
     </AppContext.Provider>
