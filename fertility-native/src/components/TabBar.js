@@ -4,11 +4,9 @@ import { useNav, SCREENS } from '../navigation'
 import { colors, font } from '../theme'
 
 const TABS = [
-  { icon: '🏠', label: 'Home',     screen: SCREENS.DASHBOARD },
-  { icon: '📁', label: 'Results',  screen: SCREENS.UPLOAD },
-  { icon: '💬', label: 'Copilot', screen: SCREENS.ONBOARDING },
-  { icon: '📅', label: 'Planning', screen: SCREENS.PLANNING },
-  { icon: '⌚', label: 'Health',   screen: SCREENS.CONNECTED },
+  { icon: '📊', label: 'Results',  screen: SCREENS.RESULTS },
+  { icon: '💬', label: 'Copilot',  screen: SCREENS.COPILOT },
+  { icon: '⌚',  label: 'Health',   screen: SCREENS.HEALTH },
 ]
 
 export default function TabBar() {
@@ -39,21 +37,14 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(0,0,0,0.06)',
     paddingTop: 10,
   },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 3,
-    position: 'relative',
-  },
+  tab: { flex: 1, alignItems: 'center', gap: 3, position: 'relative' },
   icon: { fontSize: 22 },
-  label: { fontSize: 9, color: colors.mid },
+  label: { fontSize: 10, color: colors.mid },
   labelActive: { color: colors.teal, fontWeight: font.bold },
   activeDot: {
     position: 'absolute',
     bottom: -6,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 4, height: 4, borderRadius: 2,
     backgroundColor: colors.teal,
   },
 })

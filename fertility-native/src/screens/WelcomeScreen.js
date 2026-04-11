@@ -9,45 +9,34 @@ export default function WelcomeScreen() {
   const insets = useSafeAreaInsets()
 
   return (
-    <LinearGradient colors={['#F0F4FF', '#E8ECFF']} style={styles.container}>
-      <View style={[styles.content, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}>
+    <LinearGradient colors={['#1B2B6B', '#4056F4']} style={styles.container}>
+      <View style={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 32 }]}>
 
         <View style={styles.logo}>
-          <View style={styles.logoDot}><Text style={styles.logoDotEmoji}>🧬</Text></View>
+          <Text style={styles.logoEmoji}>🧬</Text>
           <Text style={styles.logoName}>Fertility Copilot</Text>
+          <Text style={styles.logoPowered}>Alan × Mistral</Text>
         </View>
 
         <View style={styles.hero}>
-          <Text style={styles.tag}>Alan x Mistral</Text>
           <Text style={styles.title}>
-            Clarity & care{'\n'}at every step of{'\n'}your{' '}
-            <Text style={styles.titleAccent}>fertility journey.</Text>
+            I just received{'\n'}my results…{'\n'}
+            <Text style={styles.titleAccent}>and I don't{'\n'}understand them.</Text>
           </Text>
+
           <Text style={styles.subtitle}>
-            The intelligent companion guiding you from your very first question through every step of your journey.
+            Waiting weeks for answers can be stressful.{'\n'}
+            We help you understand and act — today.
           </Text>
-
-          <View style={styles.statsRow}>
-            {[
-              { num: '100k', lbl: 'couples / year' },
-              { num: '40%', lbl: 'feel alone' },
-              { num: '3→6m', lbl: 'wait for appt' },
-            ].map((s, i) => (
-              <View key={i} style={[styles.statPill, shadow.sm]}>
-                <Text style={styles.statNum}>{s.num}</Text>
-                <Text style={styles.statLbl}>{s.lbl}</Text>
-              </View>
-            ))}
-          </View>
-
-          <TouchableOpacity style={[styles.btnPrimary, shadow.md]} onPress={() => navigate(SCREENS.ONBOARDING)}>
-            <Text style={styles.btnPrimaryText}>Start my journey →</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => navigate(SCREENS.DASHBOARD)}>
-            <Text style={styles.btnSecondaryText}>I already have an account</Text>
-          </TouchableOpacity>
         </View>
+
+        <View style={styles.bottom}>
+          <TouchableOpacity style={[styles.btn, shadow.lg]} onPress={() => navigate(SCREENS.UPLOAD)}>
+            <Text style={styles.btnText}>Upload my results →</Text>
+          </TouchableOpacity>
+          <Text style={styles.hint}>PDF · Photo · Lab report · Any format</Text>
+        </View>
+
       </View>
     </LinearGradient>
   )
@@ -55,21 +44,17 @@ export default function WelcomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1, paddingHorizontal: 24 },
-  logo: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  logoDot: { width: 32, height: 32, backgroundColor: colors.blue, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  logoDotEmoji: { fontSize: 16 },
-  logoName: { fontSize: 15, fontWeight: font.bold, color: colors.dark },
-  hero: { flex: 1, justifyContent: 'center' },
-  tag: { fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: colors.teal, marginBottom: 12 },
-  title: { fontSize: 30, fontWeight: font.black, color: colors.dark, lineHeight: 38, marginBottom: 14 },
-  titleAccent: { color: colors.teal },
-  subtitle: { fontSize: 13, color: colors.mid, lineHeight: 21, marginBottom: 28 },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 28 },
-  statPill: { flex: 1, backgroundColor: colors.white, borderRadius: 12, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(64,86,244,0.12)' },
-  statNum: { fontSize: 16, fontWeight: font.black, color: colors.teal },
-  statLbl: { fontSize: 9, color: colors.mid, marginTop: 2, textAlign: 'center' },
-  btnPrimary: { backgroundColor: colors.blue, borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 8 },
-  btnPrimaryText: { color: colors.white, fontSize: 15, fontWeight: font.bold, letterSpacing: 0.3 },
-  btnSecondaryText: { color: colors.mid, fontSize: 13, textAlign: 'center', paddingVertical: 10 },
+  content: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between' },
+  logo: { alignItems: 'flex-start' },
+  logoEmoji: { fontSize: 32, marginBottom: 6 },
+  logoName: { fontSize: 16, fontWeight: font.bold, color: 'rgba(255,255,255,0.9)' },
+  logoPowered: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, letterSpacing: 1 },
+  hero: { flex: 1, justifyContent: 'center', paddingVertical: 40 },
+  title: { fontSize: 34, fontWeight: font.black, color: 'rgba(255,255,255,0.5)', lineHeight: 42, marginBottom: 20 },
+  titleAccent: { color: colors.white },
+  subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.65)', lineHeight: 24 },
+  bottom: { gap: 12 },
+  btn: { backgroundColor: colors.teal, borderRadius: 18, padding: 18, alignItems: 'center' },
+  btnText: { color: colors.white, fontSize: 16, fontWeight: font.bold, letterSpacing: 0.3 },
+  hint: { textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.4)' },
 })
