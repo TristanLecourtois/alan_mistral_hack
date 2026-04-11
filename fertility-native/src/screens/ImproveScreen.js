@@ -284,6 +284,110 @@ const DEVICES = [
   { id: 'garmin', icon: '🏃', name: 'Garmin', desc: 'Activity, HRV, SpO₂' },
 ]
 
+// ─── Impact projection with tabs ────────────────────────────
+const IMPACT_TABS = [
+  {
+    key: 'motility',
+    label: 'Motility',
+    emoji: '🏊',
+    baseline: 28, projected: 42, unit: '%',
+    baselineLabel: 'Current: 28%',
+    projectedLabel: 'Goal: 42%',
+    note: '+14% expected after 1 sperm cycle (74 days)',
+    color: colors.blue,
+  },
+  {
+    key: 'score',
+    label: 'Score',
+    emoji: '⭐',
+    baseline: 72, projected: 88, unit: '/100',
+    baselineLabel: 'Current: 72',
+    projectedLabel: 'Goal: 88',
+    note: 'Based on all biomarkers combined',
+    color: colors.teal,
+  },
+  {
+    key: 'compliance',
+    label: 'Habits',
+    emoji: '✅',
+    baseline: 35, projected: 78, unit: '%',
+    baselineLabel: 'Current: 35%',
+    projectedLabel: 'Goal: 78%',
+    note: 'Wearable tracking improves compliance ×2',
+    color: colors.amber,
+  },
+]
+
+function ImpactProjectionCard({ anyConnected }) {
+  const [activeTab, setActiveTab] = useState(0)
+  const tab = IMPACT_TABS[activeTab]
+  const barW = useRef(new Animated.Value(0)).current
+  const prevTab = useRef(activeTab)
+
+  useEffect(() => {
+    barW.setValue(0)
+    Animated.timing(barW, { toValue: 1, duration: 900, useNativeDriver: false }).start()
+    prevTab.current = activeTab
+  }, [activeTab])
+
+  const baselinePct = tab.baseline
+  const projectedPct = tab.projected - tab.baseline
+
+  return (
+    <View style={[s.card, shadow.sm]}>
+      <Text style={s.cardHead}>📈 Projected impact</Text>
+      <Text style={s.cardSub}>
+        {anyConnected ? 'Wearable data + clinical guidelines' : 'Clinical guidelines · Connect a device for live projections'}
+      </Text>
+
+      {/* Tabs */}
+      <View style={ip.tabRow}>
+        {IMPACT_TABS.map((t, i) => (
+          <TouchableOpacity
+            key={t.key}
+            style={[ip.tab, activeTab === i && { backgroundColor: t.color + '18', borderColor: t.color }]}
+            onPress={() => setActiveTab(i)}
+          >
+            <Text style={ip.tabEmoji}>{t.emoji}</Text>
+            <Text style={[ip.tabLabel, activeTab === i && { color: t.color, fontWeight: font.bold }]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Values */}
+      <View style={ip.valuesRow}>
+        <View style={ip.valueBlock}>
+          <Text style={[ip.valueBig, { color: colors.mid }]}>{tab.baseline}{tab.unit}</Text>
+          <Text style={ip.valueSub}>Now</Text>
+        </View>
+        <Text style={ip.arrow}>→</Text>
+        <View style={ip.valueBlock}>
+          <Text style={[ip.valueBig, { color: tab.color }]}>{tab.projected}{tab.unit}</Text>
+          <Text style={ip.valueSub}>Goal</Text>
+        </View>
+        <View style={[ip.gainBadge, { backgroundColor: tab.color + '15' }]}>
+          <Text style={[ip.gainText, { color: tab.color }]}>+{tab.projected - tab.baseline}</Text>
+        </View>
+      </View>
+
+      {/* Bar */}
+      <View style={ip.track}>
+        <View style={[ip.baseline, { width: `${baselinePct}%`, backgroundColor: tab.color + '40' }]} />
+        <Animated.View style={[ip.projected, {
+          left: `${baselinePct}%`,
+          width: barW.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${projectedPct}%`] }),
+          backgroundColor: tab.color,
+        }]} />
+      </View>
+      <Text style={[ip.note, { color: tab.color }]}>💡 {tab.note}</Text>
+
+      <View style={s.cycleNote}>
+        <Text style={s.cycleNoteText}>🔄 Sperm regenerate every 74 days — your next cycle starts today.</Text>
+      </View>
+    </View>
+  )
+}
+
 // ─── Main screen ─────────────────────────────────────────────
 export default function ImproveScreen() {
   const { analysisResult, habits, addHabit } = useApp()
@@ -338,32 +442,27 @@ export default function ImproveScreen() {
 
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: insets.bottom + 28, gap: 14 }} showsVerticalScrollIndicator={false}>
 
-        {/* ── 1. Connect wearables ── */}
-        {!anyConnected ? (
-          <LinearGradient colors={['#1B2B6B', '#4056F4']} style={s.connectCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-            <Text style={s.connectIcon}>⌚</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={s.connectTitle}>Connect your wearable</Text>
-              <Text style={s.connectSub}>Unlock a personalized daily plan based on your real biometrics.</Text>
-              <View style={s.impactBadge}>
-                <Text style={s.impactBadgeText}>⚡ Up to +60% improvement vs. advice alone</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        ) : (
-          <LinearGradient colors={['#00A87F', '#00C999']} style={s.connectCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-            <Text style={s.connectIcon}>✅</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={s.connectTitle}>Wearable connected</Text>
-              <Text style={s.connectSub}>Your biometrics are live. Generate your personalized plan below.</Text>
-            </View>
-          </LinearGradient>
-        )}
-
-        {/* Device list */}
+        {/* ── 1. Connect your device (with +60% badge inline) ── */}
         <View style={[s.card, shadow.sm]}>
-          <Text style={s.cardHead}>📱 Connect your device</Text>
-          <Text style={s.cardSub}>Via Thryve — your data stays private</Text>
+          <View style={s.deviceCardHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.cardHead}>📱 Connect your device</Text>
+              <Text style={s.cardSub}>Via Thryve · Your data stays private</Text>
+            </View>
+            {!anyConnected && (
+              <View style={s.impactBadge}>
+                <Text style={s.impactBadgeText}>⚡ +60%</Text>
+              </View>
+            )}
+            {anyConnected && (
+              <View style={s.connectedBadge}>
+                <Text style={s.connectedBadgeText}>✓ Live</Text>
+              </View>
+            )}
+          </View>
+          {!anyConnected && (
+            <Text style={s.deviceImpactHint}>Connect a wearable to unlock real-time personalization and track your progress.</Text>
+          )}
           {DEVICES.map((device, i) => (
             <View key={device.id} style={[s.deviceRow, i < DEVICES.length - 1 && s.deviceBorder]}>
               <Text style={s.deviceIcon}>{device.icon}</Text>
@@ -448,22 +547,7 @@ export default function ImproveScreen() {
             ))}
 
             {/* ── 5. Impact projection ── */}
-            <View style={[s.card, shadow.sm]}>
-              <Text style={s.cardHead}>📈 Projected impact</Text>
-              <Text style={s.cardSub}>
-                {anyConnected
-                  ? 'Based on your wearable data + clinical guidelines'
-                  : 'Based on clinical guidelines · Connect a device for personalized projections'}
-              </Text>
-              <View style={{ gap: 16, marginTop: 10 }}>
-                {IMPACT_PROJECTIONS.map((item, i) => (
-                  <ImpactBar key={i} {...item} />
-                ))}
-              </View>
-              <View style={s.cycleNote}>
-                <Text style={s.cycleNoteText}>🔄 Sperm fully regenerate every 74 days — your next cycle starts today.</Text>
-              </View>
-            </View>
+            <ImpactProjectionCard anyConnected={anyConnected} />
 
             {habits.length > 0 && (
               <View style={[s.card, shadow.sm]}>
@@ -577,6 +661,24 @@ const ib = StyleSheet.create({
   projectedLabel: { fontSize: 9, color: colors.teal, fontWeight: font.semibold },
 })
 
+const ip = StyleSheet.create({
+  tabRow: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 16 },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: 'transparent', backgroundColor: colors.lightgray, gap: 3 },
+  tabEmoji: { fontSize: 18 },
+  tabLabel: { fontSize: 11, color: colors.mid, fontWeight: font.medium },
+  valuesRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  valueBlock: { alignItems: 'center' },
+  valueBig: { fontSize: 26, fontWeight: font.black },
+  valueSub: { fontSize: 10, color: colors.mid, marginTop: 1 },
+  arrow: { fontSize: 18, color: colors.mid, flex: 1, textAlign: 'center' },
+  gainBadge: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6 },
+  gainText: { fontSize: 16, fontWeight: font.black },
+  track: { height: 14, backgroundColor: colors.lightgray, borderRadius: 7, flexDirection: 'row', overflow: 'hidden', marginBottom: 10 },
+  baseline: { height: '100%', borderRadius: 7 },
+  projected: { position: 'absolute', top: 0, height: '100%', borderRadius: 7 },
+  note: { fontSize: 11, lineHeight: 17, marginBottom: 8 },
+})
+
 const wt = StyleSheet.create({
   tile: {
     width: (SCREEN_WIDTH - 32 - 10) / 2,
@@ -603,13 +705,13 @@ const s = StyleSheet.create({
   scroll: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
   sectionLabel: { fontSize: 10, fontWeight: font.bold, textTransform: 'uppercase', letterSpacing: 1.2, color: colors.mid },
   sectionSub: { fontSize: 11, color: colors.mid, marginTop: -8 },
-  // Connect card
-  connectCard: { borderRadius: 20, padding: 18, flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
-  connectIcon: { fontSize: 30, marginTop: 2 },
-  connectTitle: { fontSize: 16, fontWeight: font.black, color: colors.white, marginBottom: 5 },
-  connectSub: { fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18, marginBottom: 10 },
-  impactBadge: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
-  impactBadgeText: { fontSize: 11, color: colors.white, fontWeight: font.bold },
+  // Device card header
+  deviceCardHead: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
+  impactBadge: { backgroundColor: colors.blue, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 },
+  impactBadgeText: { fontSize: 12, color: colors.white, fontWeight: font.black },
+  connectedBadge: { backgroundColor: 'rgba(0,201,153,0.12)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: colors.teal },
+  connectedBadgeText: { fontSize: 12, color: colors.teal, fontWeight: font.bold },
+  deviceImpactHint: { fontSize: 12, color: colors.mid, lineHeight: 18, marginBottom: 10 },
   // Cards
   card: { backgroundColor: colors.white, borderRadius: 16, padding: 16 },
   cardHead: { fontSize: 14, fontWeight: font.black, color: colors.dark, marginBottom: 4 },

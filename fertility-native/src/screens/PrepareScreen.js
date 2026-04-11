@@ -63,7 +63,7 @@ function QuestionItem({ q, i, onToggle, entryAnim }) {
 // ─── Main screen ─────────────────────────────────────────────
 export default function PrepareScreen() {
   const { navigate } = useNav()
-  const { analysisResult, onboardingAnswers, appointmentDate, setAppointmentDate, generatedQuestions, setGeneratedQuestions } = useApp()
+  const { analysisResult, onboardingAnswers, appointmentDate, setAppointmentDate, generatedQuestions, setGeneratedQuestions, setPendingCopilotMessage, createConversation } = useApp()
   const insets = useSafeAreaInsets()
   const scrollRef = useRef(null)
 
@@ -260,7 +260,14 @@ export default function PrepareScreen() {
 
               {/* Actions */}
               <View style={s.actionsRow}>
-                <TouchableOpacity style={s.actionBtnSecondary} onPress={() => navigate(SCREENS.COPILOT)}>
+                <TouchableOpacity style={s.actionBtnSecondary} onPress={() => {
+                  const checked = questions.filter(q => q.checked)
+                  if (checked.length > 0) {
+                    const msg = `I'd like to discuss these questions for my appointment:\n${checked.map((q, i) => `${i + 1}. ${q.text}`).join('\n')}`
+                    setPendingCopilotMessage(msg)
+                  }
+                  navigate(SCREENS.COPILOT)
+                }}>
                   <Text style={s.actionBtnSecondaryText}>💬 Discuss with{'\n'}Copilot</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -286,7 +293,7 @@ export default function PrepareScreen() {
           )}
 
           {/* ── Copilot chat CTA ── */}
-          <TouchableOpacity style={[s.copilotCard, shadow.sm]} onPress={() => navigate(SCREENS.COPILOT)} activeOpacity={0.85}>
+          <TouchableOpacity style={[s.copilotCard, shadow.sm]} onPress={() => { setPendingCopilotMessage(null); navigate(SCREENS.COPILOT) }} activeOpacity={0.85}>
             <View style={s.botDot}>
               <Text style={{ fontSize: 16 }}>🤖</Text>
             </View>
