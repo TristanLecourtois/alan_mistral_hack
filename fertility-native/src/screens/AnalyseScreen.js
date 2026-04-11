@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useNav, SCREENS } from '../navigation'
 import { useApp } from '../context/AppContext'
 import { analyzeDocument } from '../services/mistralService'
+import { MOCK_SPERM_ANALYSIS } from '../services/mockData'
 import { colors, font, shadow } from '../theme'
 
 const STEPS = [
@@ -157,10 +158,13 @@ export default function AnalyseScreen() {
     })
 
     async function run() {
-      const res = await analyzeDocument(
-        uploadedDocument?.uri,
-        uploadedDocument?.name || 'document.pdf'
-      )
+      // Demo file → skip all API calls, use mock data directly
+      const res = uploadedDocument?.isDemoFile
+        ? MOCK_SPERM_ANALYSIS
+        : await analyzeDocument(
+            uploadedDocument?.uri,
+            uploadedDocument?.name || 'document.pdf'
+          )
       // Make sure all steps finish visually before showing success
       const minDelay = STEPS.length * STEP_MS + 400
       setTimeout(() => {
