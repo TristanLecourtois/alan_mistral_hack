@@ -5,8 +5,9 @@ import { colors, font } from '../theme'
 
 const TABS = [
   { icon: '📊', label: 'Results',  screen: SCREENS.RESULTS },
-  { icon: '💬', label: 'Copilot',  screen: SCREENS.COPILOT },
-  { icon: '⌚',  label: 'Health',   screen: SCREENS.HEALTH },
+  { icon: '📋', label: 'Prepare',  screen: SCREENS.PREPARE },
+  { icon: '💬', label: 'Chat',     screen: SCREENS.COPILOT },
+  { icon: '💪', label: 'Improve',  screen: SCREENS.IMPROVE },
 ]
 
 export default function TabBar() {
@@ -14,14 +15,17 @@ export default function TabBar() {
   const insets = useSafeAreaInsets()
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + 4 }]}>
+    <View style={[styles.container, { paddingBottom: insets.bottom + 2 }]}>
       {TABS.map((tab) => {
         const active = screen === tab.screen
         return (
-          <TouchableOpacity key={tab.screen} style={styles.tab} onPress={() => navigate(tab.screen)}>
+          <TouchableOpacity
+            key={tab.screen}
+            style={[styles.tab, active && styles.tabActive]}
+            onPress={() => navigate(tab.screen)}
+          >
             <Text style={styles.icon}>{tab.icon}</Text>
             <Text style={[styles.label, active && styles.labelActive]}>{tab.label}</Text>
-            {active && <View style={styles.activeDot} />}
           </TouchableOpacity>
         )
       })}
@@ -34,17 +38,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: colors.white,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.06)',
-    paddingTop: 10,
+    borderTopColor: 'rgba(0,0,0,0.07)',
+    paddingTop: 8,
   },
-  tab: { flex: 1, alignItems: 'center', gap: 3, position: 'relative' },
-  icon: { fontSize: 22 },
-  label: { fontSize: 10, color: colors.mid },
-  labelActive: { color: colors.teal, fontWeight: font.bold },
-  activeDot: {
-    position: 'absolute',
-    bottom: -6,
-    width: 4, height: 4, borderRadius: 2,
-    backgroundColor: colors.teal,
-  },
+  tab: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 4 },
+  tabActive: {},
+  icon: { fontSize: 20 },
+  label: { fontSize: 10, color: colors.mid, fontWeight: font.medium },
+  labelActive: { color: colors.blue, fontWeight: font.bold },
 })

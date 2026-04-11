@@ -10,10 +10,11 @@ import UploadScreen   from './src/screens/UploadScreen'
 import AnalyseScreen  from './src/screens/AnalyseScreen'
 import ProfileScreen  from './src/screens/ProfileScreen'
 import ResultsScreen  from './src/screens/ResultsScreen'
+import PrepareScreen  from './src/screens/PrepareScreen'
 import CopilotScreen  from './src/screens/CopilotScreen'
+import ImproveScreen  from './src/screens/ImproveScreen'
 import HealthScreen   from './src/screens/HealthScreen'
 
-// Screens in the main flow — no tab bar
 const FLOW_SCREENS = new Set([
   SCREENS.WELCOME,
   SCREENS.UPLOAD,
@@ -32,7 +33,9 @@ function Router() {
       case SCREENS.ANALYSE:  return <AnalyseScreen />
       case SCREENS.PROFILE:  return <ProfileScreen />
       case SCREENS.RESULTS:  return <ResultsScreen />
+      case SCREENS.PREPARE:  return <PrepareScreen />
       case SCREENS.COPILOT:  return <CopilotScreen />
+      case SCREENS.IMPROVE:  return <ImproveScreen />
       case SCREENS.HEALTH:   return <HealthScreen />
       default:               return <WelcomeScreen />
     }
