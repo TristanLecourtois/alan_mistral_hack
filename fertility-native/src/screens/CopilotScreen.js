@@ -55,12 +55,15 @@ export default function CopilotScreen() {
     if (!userText || loading) return
 
     const userMsg = { role: 'user', content: userText }
-    setMessages(prev => [...prev, userMsg])
+    const updatedMessages = [...messages, userMsg]
+    setMessages(updatedMessages)
     setInput('')
     setLoading(true)
 
     try {
-      const reply = await askCopilot(userText, analysisResult, onboardingAnswers)
+      // Send full conversation history (excluding initial assistant greeting) for multi-turn context
+      const historyToSend = updatedMessages.filter(m => !(m.role === 'assistant' && updatedMessages.indexOf(m) === 0))
+      const reply = await askCopilot(historyToSend, analysisResult, onboardingAnswers)
       setMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: "I'm sorry, I couldn't process your question. Please try again." }])

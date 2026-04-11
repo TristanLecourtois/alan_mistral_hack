@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView, Modal,
   Animated, TextInput, Alert, ActivityIndicator,
-  StyleSheet, Dimensions, KeyboardAvoidingView, Platform,
+  StyleSheet, Dimensions,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -10,6 +10,7 @@ import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
 import { useNav, SCREENS } from '../navigation'
 import { useApp } from '../context/AppContext'
+import { generateAppointmentQuestions } from '../services/mistralService'
 import { colors, font, shadow } from '../theme'
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window')
@@ -22,31 +23,36 @@ function semoji(s) { return s === 'ok' ? '🟢' : s === 'warn' ? '🟠' : '🔴'
 
 // ─── Biomarker gauge bar ─────────────────────────────────────
 function GaugeBar({ bio }) {
-  const value = parseFloat(bio.value) || 0
-  const norm = parseFloat(bio.normValue) || 1
-  const max = parseFloat(bio.maxDisplayValue) || norm * 2
+  const value    = parseFloat(bio.value) || 0
+  const normVal  = parseFloat(bio.normValue)
+  const hasNorm  = !isNaN(normVal) && normVal > 0
+  const max      = parseFloat(bio.maxDisplayValue) || (hasNorm ? normVal * 2 : value * 2 || 1)
   const valuePct = Math.min((value / max) * 100, 100)
-  const normPct = Math.min((norm / max) * 100, 100)
-  const fillW = useRef(new Animated.Value(0)).current
+  const normPct  = hasNorm ? Math.min((normVal / max) * 100, 100) : 50
+  const fillW    = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
-    Animated.timing(fillW, { toValue: valuePct, duration: 650, delay: 150, useNativeDriver: false }).start()
+    Animated.timing(fillW, { toValue: valuePct, duration: 700, delay: 120, useNativeDriver: false }).start()
   }, [])
 
   return (
     <View style={g.wrap}>
       <View style={g.track}>
-        <View style={[g.normZone, { left: `${normPct}%`, right: 0 }]} />
+        {hasNorm && <View style={[g.normZone, { left: `${normPct}%`, right: 0 }]} />}
         <Animated.View style={[g.fill, {
           width: fillW.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }),
           backgroundColor: sc(bio.status),
         }]} />
-        <View style={[g.normLine, { left: `${normPct}%` }]} />
+        {hasNorm && <View style={[g.normLine, { left: `${normPct}%` }]} />}
       </View>
       <View style={g.labelsRow}>
-        <Text style={g.labelEdge}>0</Text>
-        <Text style={[g.labelNorm, { left: `${normPct}%` }]}>min {bio.normValue} {bio.unit}</Text>
-        <Text style={g.labelEdge}>{bio.maxDisplayValue} {bio.unit}</Text>
+        <Text style={g.labelEdge}>0 {bio.unit}</Text>
+        {hasNorm && (
+          <View style={[g.normLabelWrap, { left: `${normPct}%` }]}>
+            <Text style={g.labelNorm}>min {normVal} {bio.unit}</Text>
+          </View>
+        )}
+        <Text style={g.labelEdge}>{max} {bio.unit}</Text>
       </View>
       <View style={g.pills}>
         <View style={[g.pill, { backgroundColor: sbg(bio.status) }]}>
@@ -197,7 +203,7 @@ function AppointmentCard({ date, onSelect }) {
 }
 
 // ─── Questions section ───────────────────────────────────────
-function QuestionsSection({ questions, setQuestions, onDiscuss, onExport, exporting }) {
+function QuestionsSection({ questions, setQuestions, onDiscuss, onExport, exporting, loading }) {
   const [newQ, setNewQ] = useState('')
   const [expanded, setExpanded] = useState(true)
 
@@ -221,7 +227,14 @@ function QuestionsSection({ questions, setQuestions, onDiscuss, onExport, export
       </TouchableOpacity>
       <Text style={s.cardSub}>AI-generated questions based on your results. Select the ones you want.</Text>
 
-      {expanded && (
+      {loading && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 }}>
+          <ActivityIndicator size="small" color={colors.blue} />
+          <Text style={{ fontSize: 12, color: colors.mid }}>Generating questions with Mistral…</Text>
+        </View>
+      )}
+
+      {expanded && !loading && (
         <>
           {questions.map((q, i) => (
             <TouchableOpacity key={i} style={[s.qItem, q.checked && s.qItemOn]} onPress={() => toggle(i)}>
@@ -278,30 +291,41 @@ function QuestionsSection({ questions, setQuestions, onDiscuss, onExport, export
 // ─── Main screen ─────────────────────────────────────────────
 export default function ResultsScreen() {
   const { navigate } = useNav()
-  const { analysisResult, addHabit, habits, appointmentDate, setAppointmentDate } = useApp()
+  const { analysisResult, onboardingAnswers, addHabit, habits, appointmentDate, setAppointmentDate } = useApp()
   const insets = useSafeAreaInsets()
 
   const [selectedBio, setSelectedBio] = useState(null)
   const [selectedReco, setSelectedReco] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const [questions, setQuestions] = useState(
-    (analysisResult?.questions || []).map(q => ({ ...q }))
-  )
+  const [questions, setQuestions] = useState([])
+  const [questionsLoading, setQuestionsLoading] = useState(false)
 
   const biomarkers = analysisResult?.biomarkers || []
   const recommendations = analysisResult?.recommendations || []
   const summary = analysisResult?.copilotSummary || ''
   const hasIssues = biomarkers.some(b => b.status !== 'ok')
 
+  // Generate appointment questions from backend when screen loads
+  useEffect(() => {
+    if (!analysisResult) return
+    setQuestionsLoading(true)
+    generateAppointmentQuestions(analysisResult, onboardingAnswers || [])
+      .then(result => {
+        const all = [
+          ...(result.priority || []),
+          ...(result.general  || []),
+        ]
+        setQuestions(all)
+      })
+      .catch(() => setQuestions([]))
+      .finally(() => setQuestionsLoading(false))
+  }, [analysisResult])
+
   async function handleExportPDF() {
     const checked = questions.filter(q => q.checked)
-    if (checked.length === 0) {
-      Alert.alert('No questions selected', 'Select at least one question to export.')
-      return
-    }
     setExporting(true)
     try {
-      const html = buildPDFHtml({ analysisResult, questions, appointmentDate })
+      const html = buildPDFHtml({ analysisResult, questions: checked.length ? questions : questions.map(q => ({ ...q, checked: true })), appointmentDate })
       const { uri } = await Print.printToFileAsync({ html })
       await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share your appointment prep' })
     } catch {
@@ -397,6 +421,7 @@ export default function ResultsScreen() {
           onDiscuss={() => navigate(SCREENS.COPILOT)}
           onExport={handleExportPDF}
           exporting={exporting}
+          loading={questionsLoading}
         />
 
         {/* ── Urgent CTA ── */}
@@ -485,7 +510,8 @@ const g = StyleSheet.create({
   normLine: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.teal },
   labelsRow: { position: 'relative', height: 16 },
   labelEdge: { position: 'absolute', fontSize: 9, color: colors.mid },
-  labelNorm: { position: 'absolute', fontSize: 9, color: colors.teal, fontWeight: font.semibold, transform: [{ translateX: -18 }] },
+  normLabelWrap: { position: 'absolute', alignItems: 'center', transform: [{ translateX: -24 }] },
+  labelNorm: { fontSize: 9, color: colors.teal, fontWeight: font.semibold },
   pills: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
   pill: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 },
   pillText: { fontSize: 12, fontWeight: font.bold },
