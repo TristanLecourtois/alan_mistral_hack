@@ -6,7 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useApp } from '../context/AppContext'
-import { DEMO_BIOMETRICS } from '../services/thryveService'
+import { fetchBiometrics, mapThryveToBiomarkers } from '../services/thryveService'
 import { colors, font, shadow } from '../theme'
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window')
@@ -320,6 +320,8 @@ export default function ImproveScreen() {
   const insets = useSafeAreaInsets()
 
   const [connectedDevices, setConnectedDevices] = useState({})
+  const [wearableBiomarkers, setWearableBiomarkers] = useState(null)
+  const [wearableLoading, setWearableLoading] = useState(false)
   const [phase, setPhase] = useState('idle') // idle | generating | plan
   const [displayedHabits, setDisplayedHabits] = useState([])
   const [habitAnims, setHabitAnims] = useState([])
@@ -328,8 +330,22 @@ export default function ImproveScreen() {
 
   const anyConnected = Object.values(connectedDevices).some(Boolean)
 
-  function connectDevice(id) {
-    setConnectedDevices(prev => ({ ...prev, [id]: !prev[id] }))
+  async function connectDevice(id) {
+    const isConnected = !connectedDevices[id]
+    setConnectedDevices(prev => ({ ...prev, [id]: isConnected }))
+    if (isConnected) {
+      setWearableLoading(true)
+      try {
+        const biomarkers = await fetchBiometrics(id)
+        setWearableBiomarkers(biomarkers)
+      } finally {
+        setWearableLoading(false)
+      }
+    } else {
+      // disconnected last device
+      const remaining = Object.entries(connectedDevices).filter(([k, v]) => k !== id && v)
+      if (remaining.length === 0) setWearableBiomarkers(null)
+    }
   }
 
   async function handleGenerate() {
@@ -399,10 +415,14 @@ export default function ImproveScreen() {
               <TouchableOpacity
                 style={[s.deviceBtn, connectedDevices[device.id] && s.deviceBtnOn]}
                 onPress={() => connectDevice(device.id)}
+                disabled={wearableLoading && !connectedDevices[device.id]}
               >
-                <Text style={[s.deviceBtnText, connectedDevices[device.id] && s.deviceBtnTextOn]}>
-                  {connectedDevices[device.id] ? '✓ Connected' : 'Connect'}
-                </Text>
+                {wearableLoading && !connectedDevices[device.id]
+                  ? <TypingDots color={colors.blue} />
+                  : <Text style={[s.deviceBtnText, connectedDevices[device.id] && s.deviceBtnTextOn]}>
+                      {connectedDevices[device.id] ? '✓ Connected' : 'Connect'}
+                    </Text>
+                }
               </TouchableOpacity>
             </View>
           ))}
@@ -493,35 +513,51 @@ export default function ImproveScreen() {
         {/* ── 6. Wearable biomarkers (when connected) ── */}
         {anyConnected && (
           <>
-            <Text style={s.sectionLabel}>LIVE BIOMARKERS · Updated now</Text>
+            <Text style={s.sectionLabel}>
+              {wearableBiomarkers ? 'LIVE BIOMARKERS · Via Thryve' : 'DEMO BIOMARKERS · Connect to see your data'}
+            </Text>
             <Text style={s.sectionSub}>The metrics below are directly linked to your fertility results</Text>
-            <View style={s.biometricsGrid}>
-              {WEARABLE_BIOMARKERS.map((bio, i) => (
-                <WearableTile key={i} biomarker={bio} />
-              ))}
-            </View>
+            {wearableLoading && (
+              <View style={[s.card, { alignItems: 'center', paddingVertical: 24 }]}>
+                <TypingDots color={colors.blue} />
+                <Text style={[s.cardSub, { marginTop: 10 }]}>Fetching your wearable data…</Text>
+              </View>
+            )}
+            {!wearableLoading && (
+              <View style={s.biometricsGrid}>
+                {(wearableBiomarkers || WEARABLE_BIOMARKERS).map((bio, i) => (
+                  <WearableTile key={i} biomarker={bio} />
+                ))}
+              </View>
+            )}
 
             {/* Smart combinations */}
-            <View style={[s.card, shadow.sm]}>
-              <Text style={s.cardHead}>🔗 Today's key signals</Text>
-              <Text style={s.cardSub}>Combined insights from your wearable</Text>
-              <View style={{ gap: 10, marginTop: 8 }}>
-                <View style={[s.insightRow, { borderLeftColor: colors.amber }]}>
-                  <Text style={s.insightEmoji}>😴❤️</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.insightTitle}>Sleep + HRV both low</Text>
-                    <Text style={s.insightDesc}>Your body is under stress. Focus on recovery today — avoid intense workouts.</Text>
-                  </View>
-                </View>
-                <View style={[s.insightRow, { borderLeftColor: colors.coral }]}>
-                  <Text style={s.insightEmoji}>🌡️❤️</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.insightTitle}>Elevated temp + low HRV</Text>
-                    <Text style={s.insightDesc}>Heat and stress combination. Avoid sauna and hot baths today — this directly impacts sperm quality.</Text>
-                  </View>
+            {!wearableLoading && (
+              <View style={[s.card, shadow.sm]}>
+                <Text style={s.cardHead}>🔗 Today's key signals</Text>
+                <Text style={s.cardSub}>Combined insights from your wearable</Text>
+                <View style={{ gap: 10, marginTop: 8 }}>
+                  {(wearableBiomarkers || WEARABLE_BIOMARKERS).filter(b => b.trendStatus === 'warn').slice(0, 3).map((bio, i) => (
+                    <View key={i} style={[s.insightRow, { borderLeftColor: colors.amber }]}>
+                      <Text style={s.insightEmoji}>{bio.icon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.insightTitle}>{bio.label}: {bio.value} {bio.unit}</Text>
+                        <Text style={s.insightDesc}>{bio.insight}</Text>
+                      </View>
+                    </View>
+                  ))}
+                  {(wearableBiomarkers || WEARABLE_BIOMARKERS).filter(b => b.trendStatus === 'warn').length === 0 && (
+                    <View style={[s.insightRow, { borderLeftColor: colors.teal }]}>
+                      <Text style={s.insightEmoji}>✅</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.insightTitle}>All metrics look good</Text>
+                        <Text style={s.insightDesc}>Keep up your current habits — recovery and activity are well balanced.</Text>
+                      </View>
+                    </View>
+                  )}
                 </View>
               </View>
-            </View>
+            )}
           </>
         )}
 

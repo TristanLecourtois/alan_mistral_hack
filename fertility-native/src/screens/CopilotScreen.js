@@ -12,6 +12,90 @@ import { colors, font, shadow } from '../theme'
 
 function sc(s) { return s === 'ok' ? colors.teal : s === 'warn' ? colors.amber : colors.coral }
 
+// ─── Markdown renderer ────────────────────────────────────────
+// Parses **bold**, *italic*, inline `code`, bullet lists, numbered lists, headers
+function InlineText({ text, baseStyle }) {
+  // Split on **bold**, *italic*, `code`
+  const parts = []
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
+  let last = 0, m
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push({ t: text.slice(last, m.index), s: 'normal' })
+    if (m[2]) parts.push({ t: m[2], s: 'bold' })
+    else if (m[3]) parts.push({ t: m[3], s: 'italic' })
+    else if (m[4]) parts.push({ t: m[4], s: 'code' })
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push({ t: text.slice(last), s: 'normal' })
+  return (
+    <Text style={baseStyle}>
+      {parts.map((p, i) => {
+        if (p.s === 'bold')   return <Text key={i} style={{ fontWeight: '700' }}>{p.t}</Text>
+        if (p.s === 'italic') return <Text key={i} style={{ fontStyle: 'italic' }}>{p.t}</Text>
+        if (p.s === 'code')   return <Text key={i} style={md.code}>{p.t}</Text>
+        return <Text key={i}>{p.t}</Text>
+      })}
+    </Text>
+  )
+}
+
+function MarkdownText({ content, baseStyle }) {
+  const lines = (content || '').split('\n')
+  const nodes = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    // Skip empty lines but add spacing
+    if (!trimmed) { nodes.push(<View key={i} style={{ height: 6 }} />); i++; continue }
+
+    // ### Header
+    const hMatch = trimmed.match(/^#{1,3}\s+(.+)/)
+    if (hMatch) {
+      nodes.push(<InlineText key={i} text={hMatch[1]} baseStyle={[baseStyle, md.heading]} />)
+      i++; continue
+    }
+
+    // Bullet: - or • or *
+    const bulletMatch = trimmed.match(/^[-•*]\s+(.+)/)
+    if (bulletMatch) {
+      nodes.push(
+        <View key={i} style={md.bulletRow}>
+          <Text style={[baseStyle, md.bulletDot]}>•</Text>
+          <InlineText text={bulletMatch[1]} baseStyle={[baseStyle, md.bulletText]} />
+        </View>
+      )
+      i++; continue
+    }
+
+    // Numbered list: 1. or 1)
+    const numMatch = trimmed.match(/^(\d+)[.)]\s+(.+)/)
+    if (numMatch) {
+      nodes.push(
+        <View key={i} style={md.bulletRow}>
+          <Text style={[baseStyle, md.bulletDot]}>{numMatch[1]}.</Text>
+          <InlineText text={numMatch[2]} baseStyle={[baseStyle, md.bulletText]} />
+        </View>
+      )
+      i++; continue
+    }
+
+    // Normal paragraph
+    nodes.push(<InlineText key={i} text={trimmed} baseStyle={baseStyle} />)
+    i++
+  }
+  return <View style={{ gap: 3 }}>{nodes}</View>
+}
+
+const md = StyleSheet.create({
+  heading:    { fontSize: 15, fontWeight: '700', marginTop: 4, marginBottom: 2 },
+  bulletRow:  { flexDirection: 'row', gap: 6, alignItems: 'flex-start' },
+  bulletDot:  { fontSize: 14, lineHeight: 22, flexShrink: 0, minWidth: 16 },
+  bulletText: { flex: 1 },
+  code:       { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 4, paddingHorizontal: 4 },
+})
+
 // ─── Format time ─────────────────────────────────────────────
 function timeAgo(date) {
   const d = new Date(date)
@@ -118,7 +202,7 @@ function Message({ msg }) {
         <BotAvatar />
         <View style={m.botBubble}>
           <Text style={m.botName}>Fertility Copilot</Text>
-          <Text style={m.botText}>{msg.content}</Text>
+          <MarkdownText content={msg.content} baseStyle={m.botText} />
         </View>
       </Animated.View>
     )

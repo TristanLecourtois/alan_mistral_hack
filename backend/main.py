@@ -1,13 +1,16 @@
 """
 Fertility Copilot — Backend
-POST /ocr        → upload medical document → Mistral OCR → parsed values
-POST /chat       → copilot multi-turn chat with document context
-POST /questions  → generate appointment questions from analysis result
+POST /ocr              → upload medical document → Mistral OCR → parsed values
+POST /chat             → copilot multi-turn chat with document context
+POST /questions        → generate appointment questions from analysis result
+POST /thryve/metrics   → fetch & aggregate wearable metrics from Thryve API
 """
 import os
 import base64
 import time
+import httpx
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -323,3 +326,152 @@ Rules:
         "priority": [{"checked": True,  **q} for q in parsed.get("priority", [])],
         "general":  [{"checked": False, **q} for q in parsed.get("general",  [])],
     }
+
+
+# ── Thryve wearable integration ───────────────────────────────────────────────
+
+THRYVE_BASE_URL = os.getenv("THRYVE_BASE_URL", "https://api-qa.thryve.de")
+
+# Demo profiles from hackathon (authentication tokens keyed by device slug)
+THRYVE_PROFILES = {
+    "apple_watch":  "1e2e53da12e0a9aebb3750af3c5857e1",  # work_from_home_apple
+    "oura":         "7f82fc3b0abba3a86b5e15c911fc5f6e",  # student_samsung_oura_withings_huawei
+    "garmin":       "eb634efc4ac80c9ed6a355c8a99adb83",  # active_tennis_garmin
+    "whoop":        "2bfaa7e6f9455ceafa0a59fd5b80496c",  # active_gym_whoop
+    "withings":     "a463e0bf26d790d6afdfda0cfd161cf5",  # it_manager_withings
+}
+
+MINUTES_TO_HOURS = {"SleepDuration", "SleepLatency", "ActiveDuration", "ActivityDuration"}
+
+RELEVANT = {
+    "SleepDuration", "SleepEfficiency", "SleepQuality", "SleepRegularity",
+    "SleepLatency", "SleepInterruptions",
+    "HeartRate", "HeartRateResting", "HeartRateSleepLowest",
+    "Steps", "ActiveDuration", "ActivityIntensity",
+    "ActiveBurnedCalories", "BurnedCalories", "SPO2",
+}
+
+class ThryveRequest(BaseModel):
+    device_id: str          # one of THRYVE_PROFILES keys
+    days: Optional[int] = 7
+
+def _thryve_headers() -> dict:
+    auth     = os.getenv("THRYVE_AUTHORIZATION")
+    app_auth = os.getenv("THRYVE_APP_AUTHORIZATION")
+    if not auth and os.getenv("THRYVE_USERNAME") and os.getenv("THRYVE_PASSWORD"):
+        token = base64.b64encode(f"{os.environ['THRYVE_USERNAME']}:{os.environ['THRYVE_PASSWORD']}".encode()).decode()
+        auth = f"Basic {token}"
+    if not app_auth and os.getenv("THRYVE_AUTH_ID") and os.getenv("THRYVE_AUTH_SECRET"):
+        token = base64.b64encode(f"{os.environ['THRYVE_AUTH_ID']}:{os.environ['THRYVE_AUTH_SECRET']}".encode()).decode()
+        app_auth = f"Basic {token}"
+    if not auth or not app_auth:
+        raise HTTPException(status_code=503, detail="Thryve credentials not configured in .env")
+    return {"Authorization": auth, "AppAuthorization": app_auth}
+
+def _process_thryve_data(raw_users: list, user_lat: float | None, days: int) -> dict:
+    """Flatten daily values → latest-day snapshot + 7-day trends."""
+    from collections import defaultdict
+    series: dict[str, list[float]] = defaultdict(list)
+    latest: dict[str, float] = {}
+
+    for user in raw_users:
+        for source in (user.get("dataSources") or []):
+            for item in (source.get("data") or []):
+                name = item.get("dailyDynamicValueTypeName") or ""
+                if name not in RELEVANT:
+                    continue
+                try:
+                    val = float(item["value"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if name in MINUTES_TO_HOURS:
+                    val = round(val / 60, 2)
+                series[name].append(val)
+                day = item.get("day", "")
+                if not latest.get(name) or day >= (item.get("day", "")):
+                    latest[name] = val
+
+    def avg(lst):
+        return round(sum(lst) / len(lst), 1) if lst else None
+
+    def trend(lst):
+        if len(lst) < 2:
+            return "stable"
+        recent = sum(lst[-3:]) / len(lst[-3:])
+        older  = sum(lst[:-3]) / max(len(lst[:-3]), 1)
+        diff   = recent - older
+        if abs(diff) < older * 0.05:
+            return "stable"
+        return f"+{diff:+.1f}" if diff > 0 else f"{diff:.1f}"
+
+    return {
+        "sleep": {
+            "duration_h":  latest.get("SleepDuration") or avg(series["SleepDuration"]),
+            "efficiency":  latest.get("SleepEfficiency") or avg(series["SleepEfficiency"]),
+            "quality":     latest.get("SleepQuality") or avg(series["SleepQuality"]),
+            "latency_h":   latest.get("SleepLatency") or avg(series["SleepLatency"]),
+            "trend":       trend(series["SleepDuration"]),
+        },
+        "heart": {
+            "resting":      latest.get("HeartRateResting") or avg(series["HeartRateResting"]),
+            "average":      latest.get("HeartRate") or avg(series["HeartRate"]),
+            "sleep_lowest": latest.get("HeartRateSleepLowest") or avg(series["HeartRateSleepLowest"]),
+            "trend":        trend(series["HeartRateResting"]),
+        },
+        "activity": {
+            "steps":         latest.get("Steps") or avg(series["Steps"]),
+            "active_h":      latest.get("ActiveDuration") or avg(series["ActiveDuration"]),
+            "intensity":     latest.get("ActivityIntensity") or avg(series["ActivityIntensity"]),
+            "calories":      latest.get("ActiveBurnedCalories") or avg(series["ActiveBurnedCalories"]),
+            "trend":         trend(series["Steps"]),
+        },
+        "spo2":        latest.get("SPO2") or avg(series["SPO2"]),
+        "days_fetched": len(series.get("Steps", series.get("SleepDuration", []))),
+        "last_updated": date.today().isoformat(),
+    }
+
+
+@app.post("/thryve/metrics")
+async def thryve_metrics(req: ThryveRequest):
+    log_separator(f"THRYVE  —  {req.device_id}")
+
+    auth_token = THRYVE_PROFILES.get(req.device_id)
+    if not auth_token:
+        raise HTTPException(status_code=400, detail=f"Unknown device_id: {req.device_id}")
+
+    headers = _thryve_headers()
+    end_day   = date.today()
+    start_day = end_day - timedelta(days=req.days - 1)
+    payload   = {
+        "authenticationToken": auth_token,
+        "startDay": start_day.isoformat(),
+        "endDay":   end_day.isoformat(),
+        "detailed": "true",
+        "displayTypeName": "true",
+        "displayPartnerUserID": "true",
+    }
+
+    log.info(f"Token  : {auth_token[:8]}…")
+    log.info(f"Period : {start_day} → {end_day}")
+    t0 = time.time()
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(f"{THRYVE_BASE_URL}/v5/dailyDynamicValues", data=payload, headers=headers)
+    except Exception as e:
+        log.error(f"Thryve HTTP error: {e}")
+        raise HTTPException(status_code=502, detail=f"Thryve unreachable: {e}")
+
+    if resp.status_code != 200:
+        log.error(f"Thryve {resp.status_code}: {resp.text[:200]}")
+        raise HTTPException(status_code=resp.status_code, detail=f"Thryve error: {resp.text[:200]}")
+
+    raw = resp.json()
+    users = raw if isinstance(raw, list) else [raw]
+    # flatten nested list-of-chunks format
+    if users and isinstance(users[0], list):
+        users = [u for chunk in users for u in chunk]
+
+    result = _process_thryve_data(users, None, req.days)
+    log.info(f"Thryve OK ({time.time()-t0:.2f}s) — sleep={result['sleep']['duration_h']}h steps={result['activity']['steps']}")
+    return result
