@@ -3,17 +3,13 @@ import { createContext, useContext, useState } from 'react'
 const NavContext = createContext(null)
 
 export const SCREENS = {
-  WELCOME:     'Welcome',
-  ONBOARDING:  'Onboarding',
-  RESULT_OK:   'ResultOk',
-  UPLOAD:      'Upload',
-  ANALYSE:     'Analyse',
-  FICHE:       'Fiche',
-  QUESTIONS:   'Questions',
-  DASHBOARD:   'Dashboard',
-  PLANNING:    'Planning',
-  PREDICTION:  'Prediction',
-  CONNECTED:   'Connected',
+  WELCOME:  'Welcome',
+  UPLOAD:   'Upload',
+  ANALYSE:  'Analyse',
+  PROFILE:  'Profile',
+  RESULTS:  'Results',
+  COPILOT:  'Copilot',
+  HEALTH:   'Health',
 }
 
 export function NavProvider({ children }) {

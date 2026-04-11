@@ -2,25 +2,23 @@ import { View, StyleSheet } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { NavProvider, useNav, SCREENS } from './src/navigation'
+import { AppProvider } from './src/context/AppContext'
 import TabBar from './src/components/TabBar'
 
-import WelcomeScreen      from './src/screens/WelcomeScreen'
-import OnboardingScreen   from './src/screens/OnboardingScreen'
-import ResultOkScreen     from './src/screens/ResultOkScreen'
-import UploadScreen       from './src/screens/UploadScreen'
-import AnalyseScreen      from './src/screens/AnalyseScreen'
-import FichePatientScreen from './src/screens/FichePatientScreen'
-import QuestionsScreen    from './src/screens/QuestionsScreen'
-import DashboardScreen    from './src/screens/DashboardScreen'
-import PlanningScreen     from './src/screens/PlanningScreen'
-import PredictionScreen   from './src/screens/PredictionScreen'
-import ConnectedScreen    from './src/screens/ConnectedScreen'
+import WelcomeScreen  from './src/screens/WelcomeScreen'
+import UploadScreen   from './src/screens/UploadScreen'
+import AnalyseScreen  from './src/screens/AnalyseScreen'
+import ProfileScreen  from './src/screens/ProfileScreen'
+import ResultsScreen  from './src/screens/ResultsScreen'
+import CopilotScreen  from './src/screens/CopilotScreen'
+import HealthScreen   from './src/screens/HealthScreen'
 
-// Screens sans tab bar (flux onboarding / loading)
+// Screens in the main flow — no tab bar
 const FLOW_SCREENS = new Set([
   SCREENS.WELCOME,
-  SCREENS.RESULT_OK,
+  SCREENS.UPLOAD,
   SCREENS.ANALYSE,
+  SCREENS.PROFILE,
 ])
 
 function Router() {
@@ -29,26 +27,20 @@ function Router() {
 
   const renderScreen = () => {
     switch (screen) {
-      case SCREENS.WELCOME:    return <WelcomeScreen />
-      case SCREENS.ONBOARDING: return <OnboardingScreen />
-      case SCREENS.RESULT_OK:  return <ResultOkScreen />
-      case SCREENS.UPLOAD:     return <UploadScreen />
-      case SCREENS.ANALYSE:    return <AnalyseScreen />
-      case SCREENS.FICHE:      return <FichePatientScreen />
-      case SCREENS.QUESTIONS:  return <QuestionsScreen />
-      case SCREENS.DASHBOARD:  return <DashboardScreen />
-      case SCREENS.PLANNING:   return <PlanningScreen />
-      case SCREENS.PREDICTION: return <PredictionScreen />
-      case SCREENS.CONNECTED:  return <ConnectedScreen />
-      default:                 return <WelcomeScreen />
+      case SCREENS.WELCOME:  return <WelcomeScreen />
+      case SCREENS.UPLOAD:   return <UploadScreen />
+      case SCREENS.ANALYSE:  return <AnalyseScreen />
+      case SCREENS.PROFILE:  return <ProfileScreen />
+      case SCREENS.RESULTS:  return <ResultsScreen />
+      case SCREENS.COPILOT:  return <CopilotScreen />
+      case SCREENS.HEALTH:   return <HealthScreen />
+      default:               return <WelcomeScreen />
     }
   }
 
   return (
     <View style={styles.root}>
-      <View style={styles.screen}>
-        {renderScreen()}
-      </View>
+      <View style={styles.screen}>{renderScreen()}</View>
       {showTabs && <TabBar />}
     </View>
   )
@@ -57,10 +49,12 @@ function Router() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <NavProvider>
-        <StatusBar style="auto" />
-        <Router />
-      </NavProvider>
+      <AppProvider>
+        <NavProvider>
+          <StatusBar style="auto" />
+          <Router />
+        </NavProvider>
+      </AppProvider>
     </SafeAreaProvider>
   )
 }
