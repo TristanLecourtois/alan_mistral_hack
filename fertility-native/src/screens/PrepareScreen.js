@@ -42,7 +42,7 @@ function TypingDots() {
 }
 
 // ─── Question item ───────────────────────────────────────────
-function QuestionItem({ q, i, onToggle, entryAnim }) {
+function QuestionItem({ q, i, onToggle, entryAnim, onDiscuss }) {
   return (
     <Animated.View style={{ opacity: entryAnim, transform: [{ translateY: entryAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
       <TouchableOpacity style={[s.qItem, q.checked && s.qItemOn]} onPress={onToggle} activeOpacity={0.75}>
@@ -55,6 +55,13 @@ function QuestionItem({ q, i, onToggle, entryAnim }) {
             <View style={s.qBadge}><Text style={s.qBadgeText}>{q.badge}</Text></View>
           )}
         </View>
+        <TouchableOpacity
+          style={s.qDiscussBtn}
+          onPress={(e) => { e.stopPropagation?.(); onDiscuss(q.text) }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        >
+          <Text style={s.qDiscussBtnText}>💬</Text>
+        </TouchableOpacity>
       </TouchableOpacity>
     </Animated.View>
   )
@@ -141,6 +148,17 @@ export default function PrepareScreen() {
   }
 
   const checkedCount = questions.filter(q => q.checked).length
+
+  function discussQuestion(text) {
+    setPendingCopilotMessage(`I'd like to understand this question better: "${text}"`)
+    navigate(SCREENS.COPILOT)
+  }
+
+  function openNewCopilotChat() {
+    setPendingCopilotMessage(null)
+    createConversation()
+    navigate(SCREENS.COPILOT)
+  }
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -238,6 +256,7 @@ export default function PrepareScreen() {
                     i={i}
                     onToggle={() => toggle(i)}
                     entryAnim={questionAnims[i] || new Animated.Value(1)}
+                    onDiscuss={discussQuestion}
                   />
                 ))}
               </View>
@@ -293,7 +312,7 @@ export default function PrepareScreen() {
           )}
 
           {/* ── Copilot chat CTA ── */}
-          <TouchableOpacity style={[s.copilotCard, shadow.sm]} onPress={() => { setPendingCopilotMessage(null); navigate(SCREENS.COPILOT) }} activeOpacity={0.85}>
+          <TouchableOpacity style={[s.copilotCard, shadow.sm]} onPress={openNewCopilotChat} activeOpacity={0.85}>
             <View style={s.botDot}>
               <Text style={{ fontSize: 16 }}>🤖</Text>
             </View>
@@ -315,48 +334,138 @@ function buildPDFHtml({ analysisResult, questions, appointmentDate }) {
   const checked = questions.filter(q => q.checked)
   const biomarkers = analysisResult?.biomarkers || []
   const recs = analysisResult?.recommendations || []
+  const score = analysisResult?.globalScore
+  const summary = analysisResult?.copilotSummary
 
-  const sc = (s) => s === 'ok' ? '#00C999' : s === 'warn' ? '#F59E0B' : '#F4607C'
+  const statusColor = (s) => s === 'ok' ? '#00C999' : s === 'warn' ? '#F59E0B' : '#F4607C'
+  const statusLabel = (s) => s === 'ok' ? 'Normal' : s === 'warn' ? 'To monitor' : 'Below norm'
+  const statusBg = (s) => s === 'ok' ? '#E6FBF6' : s === 'warn' ? '#FEF9EC' : '#FEF0F2'
 
   const bioRows = biomarkers.map(b => `
     <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">${b.name}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;color:${sc(b.status)}">${b.value} ${b.unit}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#6B7280">${b.norm}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;font-size:13px;color:#111827;font-weight:500">${b.name}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;font-size:13px;font-weight:700;color:${statusColor(b.status)}">${b.value} ${b.unit}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;font-size:12px;color:#6B7280">${b.norm}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #F3F4F6">
+        <span style="background:${statusBg(b.status)};color:${statusColor(b.status)};padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600">${statusLabel(b.status)}</span>
+      </td>
     </tr>`).join('')
 
   const qItems = checked.map((q, i) => `
-    <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f0">
-      <span style="width:22px;height:22px;min-width:22px;background:#4056F4;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700">${i + 1}</span>
-      <p style="margin:0;font-size:13px;line-height:1.6;color:#1A1A2E">${q.text}</p>
+    <div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid #F3F4F6">
+      <div style="width:26px;height:26px;min-width:26px;background:#4056F4;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700;margin-top:1px">${i + 1}</div>
+      <p style="margin:0;font-size:13px;line-height:1.65;color:#111827">${q.text}</p>
     </div>`).join('')
 
   const recItems = recs.map(r => `
-    <div style="display:flex;gap:10px;padding:8px 0">
-      <span style="font-size:16px">${r.icon}</span>
-      <p style="margin:0;font-size:12px;color:#374151;line-height:1.6">${r.text} <em style="color:#9CA3AF">(${r.timeline || ''})</em></p>
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #F3F4F6">
+      <span style="font-size:18px;margin-top:1px">${r.icon}</span>
+      <div>
+        <p style="margin:0 0 3px;font-size:13px;color:#111827;font-weight:500">${r.text}</p>
+        ${r.timeline ? `<p style="margin:0;font-size:11px;color:#9CA3AF">${r.timeline}</p>` : ''}
+      </div>
     </div>`).join('')
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:40px;color:#1A1A2E}
-  .header{background:linear-gradient(135deg,#4056F4,#7C5CFC);border-radius:14px;padding:24px 28px;margin-bottom:28px}
-  .h-logo{font-size:12px;color:rgba(255,255,255,.65);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
-  .h-title{font-size:22px;font-weight:900;color:white;margin-bottom:4px}
-  .h-meta{font-size:12px;color:rgba(255,255,255,.6)}
-  .section{margin-bottom:24px}.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#9CA3AF;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #EEF1FF}
-  table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 12px;font-size:10px;color:#9CA3AF;font-weight:600;background:#F8F9FF}
-  .qcard{background:#F8F9FF;border-radius:12px;padding:4px 16px}.recocard{background:#F0FDF8;border-radius:12px;padding:8px 16px}
-  .footer{margin-top:40px;text-align:center;font-size:10px;color:#9CA3AF;border-top:1px solid #f0f0f0;padding-top:16px}</style></head><body>
+  const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Appointment Preparation — Fertility Copilot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif; background: #fff; color: #111827; }
+    .page { max-width: 680px; margin: 0 auto; padding: 48px 40px; }
+    /* Header */
+    .header { background: linear-gradient(135deg, #1B2B6B 0%, #4056F4 60%, #7C5CFC 100%); border-radius: 20px; padding: 28px 32px; margin-bottom: 36px; }
+    .header-eyebrow { font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+    .header-title { font-size: 26px; font-weight: 900; color: #fff; margin-bottom: 8px; }
+    .header-meta { font-size: 12px; color: rgba(255,255,255,0.55); }
+    .header-score { background: rgba(255,255,255,0.15); border-radius: 14px; padding: 12px 18px; display: inline-flex; align-items: center; gap: 10px; margin-top: 16px; }
+    .header-score-num { font-size: 28px; font-weight: 900; color: #fff; }
+    .header-score-label { font-size: 11px; color: rgba(255,255,255,0.7); }
+    /* Sections */
+    .section { margin-bottom: 32px; }
+    .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2.5px; color: #9CA3AF; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid #EEF1FF; }
+    /* Summary */
+    .summary-box { background: #F8F9FF; border-left: 4px solid #4056F4; border-radius: 10px; padding: 14px 18px; font-size: 13px; color: #374151; line-height: 1.7; font-style: italic; }
+    /* Table */
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: #F8F9FF; }
+    th { text-align: left; padding: 10px 14px; font-size: 10px; color: #9CA3AF; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+    /* Questions */
+    .q-card { background: #F8F9FF; border-radius: 14px; padding: 2px 16px 10px; }
+    /* Reco */
+    .reco-card { background: #F0FDF8; border-radius: 14px; padding: 2px 16px 10px; }
+    /* Footer */
+    .footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid #E5E7EB; text-align: center; font-size: 10px; color: #9CA3AF; line-height: 1.8; }
+  </style>
+</head>
+<body>
+<div class="page">
+
   <div class="header">
-    <div class="h-logo">🧬 Fertility Copilot · Alan × Mistral</div>
-    <div class="h-title">Appointment Preparation</div>
-    <div class="h-meta">${analysisResult?.documentType || 'Medical Report'} · ${analysisResult?.date || ''} · ${appointmentDate ? `Appointment: ${appointmentDate}` : 'No appointment scheduled'} · Generated ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+    <div class="header-eyebrow">🧬 Fertility Copilot · Alan × Mistral</div>
+    <div class="header-title">Appointment Preparation</div>
+    <div class="header-meta">
+      ${analysisResult?.documentType || 'Medical Report'}
+      ${analysisResult?.date ? ' · ' + analysisResult.date : ''}
+      ${appointmentDate ? ' · Appointment: ' + appointmentDate : ''}
+      <br>Generated ${date}
+    </div>
+    ${score != null ? `
+    <div class="header-score">
+      <div>
+        <div class="header-score-num">${score}/100</div>
+        <div class="header-score-label">Overall score</div>
+      </div>
+    </div>` : ''}
   </div>
-  ${bioRows ? `<div class="section"><div class="section-title">Biomarkers</div><table><thead><tr><th>Parameter</th><th>Your value</th><th>Reference</th></tr></thead><tbody>${bioRows}</tbody></table></div>` : ''}
-  ${qItems ? `<div class="section"><div class="section-title">Questions for my doctor (${checked.length} selected)</div><div class="qcard">${qItems}</div></div>` : ''}
-  ${recItems ? `<div class="section"><div class="section-title">Recommended actions</div><div class="recocard">${recItems}</div></div>` : ''}
-  <div class="footer">Generated by Fertility Copilot · Not a medical diagnosis · Discuss with your specialist</div>
-  </body></html>`
+
+  ${summary ? `
+  <div class="section">
+    <div class="section-title">Copilot Summary</div>
+    <div class="summary-box">"${summary}"</div>
+  </div>` : ''}
+
+  ${bioRows ? `
+  <div class="section">
+    <div class="section-title">Your Biomarkers</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Your value</th>
+          <th>Reference</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${bioRows}</tbody>
+    </table>
+  </div>` : ''}
+
+  ${qItems ? `
+  <div class="section">
+    <div class="section-title">Questions for my doctor (${checked.length} selected)</div>
+    <div class="q-card">${qItems}</div>
+  </div>` : ''}
+
+  ${recItems ? `
+  <div class="section">
+    <div class="section-title">Recommended Actions</div>
+    <div class="reco-card">${recItems}</div>
+  </div>` : ''}
+
+  <div class="footer">
+    Generated by Fertility Copilot · Powered by Mistral AI<br>
+    This document is not a medical diagnosis. Please discuss with your specialist.
+  </div>
+
+</div>
+</body>
+</html>`
 }
 
 // ─── Styles ──────────────────────────────────────────────────
@@ -409,6 +518,8 @@ const s = StyleSheet.create({
   qText: { fontSize: 12, color: colors.dark, lineHeight: 18 },
   qBadge: { marginTop: 4, backgroundColor: 'rgba(0,201,153,0.1)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start' },
   qBadgeText: { fontSize: 9, fontWeight: font.bold, color: colors.teal },
+  qDiscussBtn: { padding: 4, marginLeft: 4 },
+  qDiscussBtnText: { fontSize: 16 },
   // Add custom question
   addQRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 6 },
   addQInput: { flex: 1, backgroundColor: colors.lightgray, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: colors.dark },

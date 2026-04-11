@@ -72,7 +72,7 @@ function ConvItem({ conv, onPress, onDelete }) {
   return (
     <TouchableOpacity style={ci.row} onPress={onPress} activeOpacity={0.75}>
       <View style={ci.iconWrap}>
-        <Text style={{ fontSize: 18 }}>💬</Text>
+        <Text style={ci.iconText}>FC</Text>
       </View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={ci.title} numberOfLines={1}>{conv.title}</Text>
@@ -95,7 +95,16 @@ function ConvItem({ conv, onPress, onDelete }) {
   )
 }
 
-// ─── Message bubble (Alan-inspired) ──────────────────────────
+// ─── Bot avatar (Alan-style: clean "FC" monogram) ────────────
+function BotAvatar({ size = 32 }) {
+  return (
+    <View style={[m.botAvatar, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={[m.botAvatarText, { fontSize: size * 0.34 }]}>FC</Text>
+    </View>
+  )
+}
+
+// ─── Message bubble ───────────────────────────────────────────
 function Message({ msg }) {
   const isBot = msg.role === 'assistant'
   const entryAnim = useRef(new Animated.Value(0)).current
@@ -106,9 +115,7 @@ function Message({ msg }) {
   if (isBot) {
     return (
       <Animated.View style={[m.botRow, { opacity: entryAnim, transform: [{ translateY: entryAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]}>
-        <View style={m.botAvatar}>
-          <Text style={m.botAvatarText}>🤖</Text>
-        </View>
+        <BotAvatar />
         <View style={m.botBubble}>
           <Text style={m.botName}>Fertility Copilot</Text>
           <Text style={m.botText}>{msg.content}</Text>
@@ -142,11 +149,11 @@ function TypingIndicator() {
   }, [])
   return (
     <View style={m.botRow}>
-      <View style={m.botAvatar}><Text style={m.botAvatarText}>🤖</Text></View>
+      <BotAvatar />
       <View style={[m.botBubble, { paddingVertical: 16, paddingHorizontal: 18 }]}>
         <View style={{ flexDirection: 'row', gap: 5, alignItems: 'center' }}>
           {dots.map((d, i) => (
-            <Animated.View key={i} style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.blue, opacity: d }} />
+            <Animated.View key={i} style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#9CA3AF', opacity: d }} />
           ))}
         </View>
       </View>
@@ -237,7 +244,7 @@ function ChatView({ conversation, onBack, analysisResult, onboardingAnswers, pen
           {/* Intro message if empty */}
           {messages.length === 0 && !pendingMessage && (
             <View style={m.introWrap}>
-              <View style={m.introBotAvatar}><Text style={{ fontSize: 28 }}>🤖</Text></View>
+              <BotAvatar size={64} />
               <Text style={m.introTitle}>Hi 👋</Text>
               <Text style={m.introSub}>
                 {analysisResult
@@ -299,7 +306,7 @@ function ConversationList({ conversations, onSelect, onCreate, onDelete, analysi
       {/* Header */}
       <View style={s.listHeader}>
         <View style={s.listHeaderLeft}>
-          <View style={s.listAvatar}><Text style={{ fontSize: 22 }}>🤖</Text></View>
+          <View style={s.listAvatar}><Text style={s.listAvatarText}>FC</Text></View>
           <View>
             <Text style={s.listTitle}>Copilot</Text>
             <Text style={s.listSub}>Powered by Mistral AI</Text>
@@ -416,7 +423,8 @@ const c = StyleSheet.create({
 
 const ci = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: 16, padding: 14, marginBottom: 10 },
-  iconWrap: { width: 44, height: 44, backgroundColor: '#EEF1FF', borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  iconWrap: { width: 44, height: 44, backgroundColor: '#1B2B6B', borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  iconText: { color: '#fff', fontSize: 12, fontWeight: font.black, letterSpacing: 0.5 },
   title: { fontSize: 13, fontWeight: font.bold, color: colors.dark },
   preview: { fontSize: 12, color: colors.mid },
   time: { fontSize: 10, color: colors.mid },
@@ -426,8 +434,8 @@ const ci = StyleSheet.create({
 
 const m = StyleSheet.create({
   botRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 16, maxWidth: '88%' },
-  botAvatar: { width: 32, height: 32, backgroundColor: colors.blue, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  botAvatarText: { fontSize: 16 },
+  botAvatar: { backgroundColor: '#1B2B6B', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  botAvatarText: { color: '#fff', fontWeight: font.black, letterSpacing: 0.5 },
   botBubble: { backgroundColor: colors.white, borderRadius: 18, borderBottomLeftRadius: 4, padding: 14, ...shadow.sm, flexShrink: 1 },
   botName: { fontSize: 10, color: colors.mid, fontWeight: font.bold, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 },
   botText: { fontSize: 14, color: colors.dark, lineHeight: 22 },
@@ -435,7 +443,7 @@ const m = StyleSheet.create({
   userBubble: { backgroundColor: colors.blue, borderRadius: 18, borderBottomRightRadius: 4, paddingHorizontal: 16, paddingVertical: 12 },
   userText: { fontSize: 14, color: colors.white, lineHeight: 22 },
   introWrap: { alignItems: 'center', paddingVertical: 24, gap: 10 },
-  introBotAvatar: { width: 64, height: 64, backgroundColor: colors.blue, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  introBotAvatar: { width: 64, height: 64, backgroundColor: '#1B2B6B', borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   introTitle: { fontSize: 22, fontWeight: font.black, color: colors.dark },
   introSub: { fontSize: 14, color: colors.mid, textAlign: 'center', lineHeight: 22, paddingHorizontal: 16 },
   suggestWrap: { marginTop: 8 },
@@ -468,7 +476,8 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F4FF' },
   listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.06)' },
   listHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  listAvatar: { width: 40, height: 40, backgroundColor: colors.blue, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  listAvatar: { width: 40, height: 40, backgroundColor: '#1B2B6B', borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  listAvatarText: { color: '#fff', fontSize: 13, fontWeight: font.black, letterSpacing: 0.5 },
   listTitle: { fontSize: 17, fontWeight: font.black, color: colors.dark },
   listSub: { fontSize: 11, color: colors.mid },
   newBtn: { backgroundColor: colors.blue, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },

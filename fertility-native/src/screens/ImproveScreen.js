@@ -141,31 +141,6 @@ function HabitCard({ habit, onPress, added, entryAnim }) {
   )
 }
 
-// ─── Animated impact bar ──────────────────────────────────────
-function ImpactBar({ label, baseline, projected, unit = '%' }) {
-  const projW = useRef(new Animated.Value(0)).current
-  useEffect(() => {
-    Animated.timing(projW, { toValue: 1, duration: 1000, delay: 100, useNativeDriver: false }).start()
-  }, [])
-  return (
-    <View style={ib.row}>
-      <Text style={ib.label}>{label}</Text>
-      <View style={ib.trackWrap}>
-        <View style={ib.track}>
-          <View style={[ib.baseline, { width: `${baseline}%` }]} />
-          <Animated.View style={[ib.projected, {
-            left: `${baseline}%`,
-            width: projW.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${projected - baseline}%`] }),
-          }]} />
-        </View>
-        <View style={ib.labels}>
-          <Text style={ib.baselineLabel}>Now: {baseline}{unit}</Text>
-          <Text style={ib.projectedLabel}>Goal: +{projected - baseline}{unit}</Text>
-        </View>
-      </View>
-    </View>
-  )
-}
 
 // ─── Wearable biomarker tile ──────────────────────────────────
 function WearableTile({ biomarker }) {
@@ -284,103 +259,54 @@ const DEVICES = [
   { id: 'garmin', icon: '🏃', name: 'Garmin', desc: 'Activity, HRV, SpO₂' },
 ]
 
-// ─── Impact projection with tabs ────────────────────────────
-const IMPACT_TABS = [
-  {
-    key: 'motility',
-    label: 'Motility',
-    emoji: '🏊',
-    baseline: 28, projected: 42, unit: '%',
-    baselineLabel: 'Current: 28%',
-    projectedLabel: 'Goal: 42%',
-    note: '+14% expected after 1 sperm cycle (74 days)',
-    color: colors.blue,
-  },
-  {
-    key: 'score',
-    label: 'Score',
-    emoji: '⭐',
-    baseline: 72, projected: 88, unit: '/100',
-    baselineLabel: 'Current: 72',
-    projectedLabel: 'Goal: 88',
-    note: 'Based on all biomarkers combined',
-    color: colors.teal,
-  },
-  {
-    key: 'compliance',
-    label: 'Habits',
-    emoji: '✅',
-    baseline: 35, projected: 78, unit: '%',
-    baselineLabel: 'Current: 35%',
-    projectedLabel: 'Goal: 78%',
-    note: 'Wearable tracking improves compliance ×2',
-    color: colors.amber,
-  },
+// ─── Impact projection (simple stacked bars) ─────────────────
+const IMPACT_ROWS = [
+  { label: 'Sperm motility', icon: '🏊', baseline: 28, goal: 42, unit: '%', color: colors.blue },
+  { label: 'Fertility score', icon: '⭐', baseline: 72, goal: 88, unit: '/100', color: colors.teal },
+  { label: 'Habit compliance', icon: '✅', baseline: 35, goal: 78, unit: '%', color: colors.amber },
 ]
 
-function ImpactProjectionCard({ anyConnected }) {
-  const [activeTab, setActiveTab] = useState(0)
-  const tab = IMPACT_TABS[activeTab]
+function ImpactBar2({ row, index }) {
   const barW = useRef(new Animated.Value(0)).current
-  const prevTab = useRef(activeTab)
-
   useEffect(() => {
-    barW.setValue(0)
-    Animated.timing(barW, { toValue: 1, duration: 900, useNativeDriver: false }).start()
-    prevTab.current = activeTab
-  }, [activeTab])
+    Animated.timing(barW, { toValue: 1, duration: 800, delay: index * 120, useNativeDriver: false }).start()
+  }, [])
+  const gain = row.goal - row.baseline
+  return (
+    <View style={ip.row}>
+      <View style={ip.rowHeader}>
+        <Text style={ip.rowIcon}>{row.icon}</Text>
+        <Text style={ip.rowLabel}>{row.label}</Text>
+        <View style={[ip.gainPill, { backgroundColor: row.color + '18' }]}>
+          <Text style={[ip.gainPillText, { color: row.color }]}>+{gain}{row.unit}</Text>
+        </View>
+      </View>
+      <View style={ip.track}>
+        <View style={[ip.baseBar, { width: `${row.baseline}%`, backgroundColor: '#E5E7EB' }]} />
+        <Animated.View style={[ip.goalBar, {
+          left: `${row.baseline}%`,
+          width: barW.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${gain}%`] }),
+          backgroundColor: row.color,
+        }]} />
+      </View>
+      <View style={ip.trackLabels}>
+        <Text style={ip.trackLabelLeft}>Now: {row.baseline}{row.unit}</Text>
+        <Text style={[ip.trackLabelRight, { color: row.color }]}>Goal: {row.goal}{row.unit}</Text>
+      </View>
+    </View>
+  )
+}
 
-  const baselinePct = tab.baseline
-  const projectedPct = tab.projected - tab.baseline
-
+function ImpactProjectionCard({ anyConnected }) {
   return (
     <View style={[s.card, shadow.sm]}>
       <Text style={s.cardHead}>📈 Projected impact</Text>
       <Text style={s.cardSub}>
-        {anyConnected ? 'Wearable data + clinical guidelines' : 'Clinical guidelines · Connect a device for live projections'}
+        {anyConnected ? 'Based on your wearable data + clinical guidelines' : 'Clinical guidelines · Connect a device for personalized projections'}
       </Text>
-
-      {/* Tabs */}
-      <View style={ip.tabRow}>
-        {IMPACT_TABS.map((t, i) => (
-          <TouchableOpacity
-            key={t.key}
-            style={[ip.tab, activeTab === i && { backgroundColor: t.color + '18', borderColor: t.color }]}
-            onPress={() => setActiveTab(i)}
-          >
-            <Text style={ip.tabEmoji}>{t.emoji}</Text>
-            <Text style={[ip.tabLabel, activeTab === i && { color: t.color, fontWeight: font.bold }]}>{t.label}</Text>
-          </TouchableOpacity>
-        ))}
+      <View style={{ gap: 18, marginTop: 12 }}>
+        {IMPACT_ROWS.map((row, i) => <ImpactBar2 key={row.label} row={row} index={i} />)}
       </View>
-
-      {/* Values */}
-      <View style={ip.valuesRow}>
-        <View style={ip.valueBlock}>
-          <Text style={[ip.valueBig, { color: colors.mid }]}>{tab.baseline}{tab.unit}</Text>
-          <Text style={ip.valueSub}>Now</Text>
-        </View>
-        <Text style={ip.arrow}>→</Text>
-        <View style={ip.valueBlock}>
-          <Text style={[ip.valueBig, { color: tab.color }]}>{tab.projected}{tab.unit}</Text>
-          <Text style={ip.valueSub}>Goal</Text>
-        </View>
-        <View style={[ip.gainBadge, { backgroundColor: tab.color + '15' }]}>
-          <Text style={[ip.gainText, { color: tab.color }]}>+{tab.projected - tab.baseline}</Text>
-        </View>
-      </View>
-
-      {/* Bar */}
-      <View style={ip.track}>
-        <View style={[ip.baseline, { width: `${baselinePct}%`, backgroundColor: tab.color + '40' }]} />
-        <Animated.View style={[ip.projected, {
-          left: `${baselinePct}%`,
-          width: barW.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${projectedPct}%`] }),
-          backgroundColor: tab.color,
-        }]} />
-      </View>
-      <Text style={[ip.note, { color: tab.color }]}>💡 {tab.note}</Text>
-
       <View style={s.cycleNote}>
         <Text style={s.cycleNoteText}>🔄 Sperm regenerate every 74 days — your next cycle starts today.</Text>
       </View>
@@ -451,7 +377,7 @@ export default function ImproveScreen() {
             </View>
             {!anyConnected && (
               <View style={s.impactBadge}>
-                <Text style={s.impactBadgeText}>⚡ +60%</Text>
+                <Text style={s.impactBadgeText}>⚡ +30%</Text>
               </View>
             )}
             {anyConnected && (
@@ -649,34 +575,20 @@ const hc = StyleSheet.create({
   priorityTxt: { fontSize: 9, fontWeight: font.bold },
 })
 
-const ib = StyleSheet.create({
-  row: { gap: 6 },
-  label: { fontSize: 12, fontWeight: font.semibold, color: colors.dark },
-  trackWrap: { gap: 4 },
-  track: { height: 12, backgroundColor: colors.lightgray, borderRadius: 6, flexDirection: 'row', overflow: 'hidden' },
-  baseline: { height: '100%', backgroundColor: colors.mid + '60', borderRadius: 6 },
-  projected: { position: 'absolute', top: 0, height: '100%', backgroundColor: colors.teal + '70', borderRadius: 6 },
-  labels: { flexDirection: 'row', justifyContent: 'space-between' },
-  baselineLabel: { fontSize: 9, color: colors.mid },
-  projectedLabel: { fontSize: 9, color: colors.teal, fontWeight: font.semibold },
-})
 
 const ip = StyleSheet.create({
-  tabRow: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 16 },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: 'transparent', backgroundColor: colors.lightgray, gap: 3 },
-  tabEmoji: { fontSize: 18 },
-  tabLabel: { fontSize: 11, color: colors.mid, fontWeight: font.medium },
-  valuesRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  valueBlock: { alignItems: 'center' },
-  valueBig: { fontSize: 26, fontWeight: font.black },
-  valueSub: { fontSize: 10, color: colors.mid, marginTop: 1 },
-  arrow: { fontSize: 18, color: colors.mid, flex: 1, textAlign: 'center' },
-  gainBadge: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6 },
-  gainText: { fontSize: 16, fontWeight: font.black },
-  track: { height: 14, backgroundColor: colors.lightgray, borderRadius: 7, flexDirection: 'row', overflow: 'hidden', marginBottom: 10 },
-  baseline: { height: '100%', borderRadius: 7 },
-  projected: { position: 'absolute', top: 0, height: '100%', borderRadius: 7 },
-  note: { fontSize: 11, lineHeight: 17, marginBottom: 8 },
+  row: { gap: 6 },
+  rowHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  rowIcon: { fontSize: 15 },
+  rowLabel: { flex: 1, fontSize: 13, fontWeight: font.semibold, color: colors.dark },
+  gainPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  gainPillText: { fontSize: 11, fontWeight: font.black },
+  track: { height: 10, backgroundColor: '#F3F4F6', borderRadius: 5, flexDirection: 'row', overflow: 'hidden' },
+  baseBar: { height: '100%', borderRadius: 5 },
+  goalBar: { position: 'absolute', top: 0, height: '100%', borderRadius: 5 },
+  trackLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  trackLabelLeft: { fontSize: 10, color: colors.mid },
+  trackLabelRight: { fontSize: 10, fontWeight: font.semibold },
 })
 
 const wt = StyleSheet.create({
