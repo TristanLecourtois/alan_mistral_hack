@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput,
   Animated, ActivityIndicator, Alert, StyleSheet,
-  KeyboardAvoidingView, Platform, Dimensions,
+  KeyboardAvoidingView, Platform, Dimensions, PanResponder,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Print from 'expo-print'
@@ -41,21 +41,80 @@ function TypingDots() {
   )
 }
 
-// ─── Question item ───────────────────────────────────────────
-function QuestionItem({ q, i, onToggle, entryAnim }) {
+const SWIPE_THRESHOLD = 80
+const { width: SCREEN_WIDTH } = Dimensions.get('window')
+
+// ─── Question item (swipe-to-delete) ────────────────────────
+function QuestionItem({ q, onToggle, onDelete, entryAnim }) {
+  const translateX = useRef(new Animated.Value(0)).current
+  const deleteScale = useRef(new Animated.Value(0)).current
+  const itemHeight  = useRef(new Animated.Value(1)).current   // scale trick for collapse
+  const rowHeight   = useRef(null)
+
+  const panResponder = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) =>
+      Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderMove: (_, g) => {
+      if (g.dx > 0) return  // only left
+      translateX.setValue(g.dx)
+      const progress = Math.min(Math.abs(g.dx) / SWIPE_THRESHOLD, 1)
+      deleteScale.setValue(progress)
+    },
+    onPanResponderRelease: (_, g) => {
+      if (g.dx < -SWIPE_THRESHOLD) {
+        // commit delete: slide out then collapse
+        Animated.parallel([
+          Animated.timing(translateX, { toValue: -SCREEN_WIDTH, duration: 220, useNativeDriver: true }),
+          Animated.timing(deleteScale, { toValue: 1.2, duration: 220, useNativeDriver: true }),
+        ]).start(() => {
+          Animated.timing(itemHeight, { toValue: 0, duration: 180, useNativeDriver: false }).start(onDelete)
+        })
+      } else {
+        Animated.parallel([
+          Animated.spring(translateX, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }),
+          Animated.spring(deleteScale, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }),
+        ]).start()
+      }
+    },
+  })).current
+
   return (
-    <Animated.View style={{ opacity: entryAnim, transform: [{ translateY: entryAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-      <TouchableOpacity style={[s.qItem, q.checked && s.qItemOn]} onPress={onToggle} activeOpacity={0.75}>
-        <View style={[s.qCheck, q.checked && s.qCheckOn]}>
-          {q.checked && <Text style={{ color: colors.white, fontSize: 11, fontWeight: font.bold }}>✓</Text>}
+    <Animated.View
+      style={{
+        opacity: entryAnim,
+        transform: [{ translateY: entryAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+        maxHeight: itemHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 120] }),
+        overflow: 'hidden',
+        marginBottom: itemHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 6] }),
+      }}
+    >
+      <View style={{ position: 'relative' }}>
+        {/* Delete background */}
+        <View style={s.deleteBack} pointerEvents="none">
+          <Animated.View style={[s.deleteBtn, { transform: [{ scale: deleteScale }] }]}>
+            <Text style={s.deleteIcon}>🗑</Text>
+          </Animated.View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.qText}>{q.text}</Text>
-          {q.badge && (
-            <View style={s.qBadge}><Text style={s.qBadgeText}>{q.badge}</Text></View>
-          )}
-        </View>
-      </TouchableOpacity>
+
+        {/* Swipeable row */}
+        <Animated.View
+          style={{ transform: [{ translateX }] }}
+          {...panResponder.panHandlers}
+        >
+          <TouchableOpacity style={[s.qItem, q.checked && s.qItemOn]} onPress={onToggle} activeOpacity={0.75}>
+            <View style={[s.qCheck, q.checked && s.qCheckOn]}>
+              {q.checked && <Text style={{ color: colors.white, fontSize: 11, fontWeight: font.bold }}>✓</Text>}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.qText}>{q.text}</Text>
+              {q.badge && (
+                <View style={s.qBadge}><Text style={s.qBadgeText}>{q.badge}</Text></View>
+              )}
+            </View>
+            <Text style={s.swipeHint}>‹</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
     </Animated.View>
   )
 }
@@ -111,6 +170,11 @@ export default function PrepareScreen() {
 
   function toggle(i) {
     setQuestions(prev => prev.map((q, idx) => idx === i ? { ...q, checked: !q.checked } : q))
+  }
+
+  function deleteQuestion(i) {
+    setQuestions(prev => prev.filter((_, idx) => idx !== i))
+    setQuestionAnims(prev => prev.filter((_, idx) => idx !== i))
   }
 
   function addQuestion() {
@@ -230,13 +294,13 @@ export default function PrepareScreen() {
               </View>
               <Text style={s.cardSub}>Generated based on your results. Select the ones you want to bring.</Text>
 
-              <View style={{ gap: 6, marginTop: 6 }}>
+              <View style={{ gap: 0, marginTop: 6 }}>
                 {questions.map((q, i) => (
                   <QuestionItem
                     key={i}
                     q={q}
-                    i={i}
                     onToggle={() => toggle(i)}
+                    onDelete={() => deleteQuestion(i)}
                     entryAnim={questionAnims[i] || new Animated.Value(1)}
                   />
                 ))}
@@ -395,13 +459,17 @@ const s = StyleSheet.create({
   generatingStepRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   generatingStepText: { fontSize: 13, color: colors.dark },
   // Questions
-  qItem: { flexDirection: 'row', gap: 10, backgroundColor: colors.lightgray, borderRadius: 12, padding: 12, borderWidth: 1.5, borderColor: 'transparent' },
+  qItem: { flexDirection: 'row', gap: 10, backgroundColor: colors.lightgray, borderRadius: 12, padding: 12, borderWidth: 1.5, borderColor: 'transparent', alignItems: 'center' },
   qItemOn: { borderColor: colors.teal, backgroundColor: 'rgba(0,201,153,0.06)' },
   qCheck: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: 'rgba(0,0,0,0.15)', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
   qCheckOn: { backgroundColor: colors.teal, borderColor: colors.teal },
-  qText: { fontSize: 12, color: colors.dark, lineHeight: 18 },
+  qText: { fontSize: 12, color: colors.dark, lineHeight: 18, flex: 1 },
   qBadge: { marginTop: 4, backgroundColor: 'rgba(0,201,153,0.1)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start' },
   qBadgeText: { fontSize: 9, fontWeight: font.bold, color: colors.teal },
+  swipeHint: { fontSize: 16, color: 'rgba(0,0,0,0.12)', marginLeft: 4 },
+  deleteBack: { ...StyleSheet.absoluteFillObject, backgroundColor: '#FF3B47', borderRadius: 12, alignItems: 'flex-end', justifyContent: 'center', paddingRight: 18 },
+  deleteBtn: { alignItems: 'center', justifyContent: 'center' },
+  deleteIcon: { fontSize: 20 },
   // Add custom question
   addQRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 6 },
   addQInput: { flex: 1, backgroundColor: colors.lightgray, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: colors.dark },

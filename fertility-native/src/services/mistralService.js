@@ -104,8 +104,10 @@ async function enrichWithMistral(frontendResult) {
     .map(b => `${b.name}: ${b.value} ${b.unit} (${b.status}, norm ${b.norm})`)
     .join('\n')
 
-  const prompt = `You are a fertility health assistant. Based on this medical report, return a single JSON object with this exact structure:
+  const prompt = `You are a fertility specialist AI. Based on this medical report, return a single JSON object with this exact structure:
 {
+  "globalScore": <integer 0-100>,
+  "scoreBreakdown": "1 sentence explaining the main factors driving this score",
   "copilotSummary": "2-3 warm, reassuring, honest sentences summarizing ALL the results for the patient",
   "recommendations": [
     { "icon": "emoji", "text": "short actionable tip", "impact": "1 sentence on why this helps fertility", "timeline": "expected timeframe to see results" }
@@ -120,7 +122,28 @@ async function enrichWithMistral(frontendResult) {
   }
 }
 
-Rules:
+SCORING RULES — compute globalScore using this weighted system:
+Each parameter is scored 0-100 then weighted by clinical importance for fertility:
+
+Sperm parameters (spermiogram):
+- Progressive motility (PR): weight 30 — WHO norm ≥32%. Score: ≥32%→100, 20-31%→65, 10-19%→35, <10%→10
+- Total motility (PR+NP): weight 20 — WHO norm ≥40%. Score: ≥40%→100, 25-39%→65, 15-24%→35, <15%→10
+- Concentration: weight 20 — WHO norm ≥16M/mL. Score: ≥16→100, 8-15→65, 3-7→35, <3→10
+- Morphology (Kruger/strict): weight 15 — WHO norm ≥4%. Score: ≥4%→100, 2-3%→65, 1%→35, <1%→10
+- Volume: weight 8 — WHO norm 1.4-7.6mL. Score: in range→100, 1-1.3 or >7.6→70, <1→30
+- pH: weight 4 — WHO norm 7.2-8.0. Score: in range→100, out by 0.3→70, out by >0.5→30
+- Vitality: weight 3 — WHO norm ≥54%. Score: ≥54%→100, 40-53%→65, <40%→30
+
+Hormones (if present):
+- FSH: weight 20 — norm 1.5-12 IU/L. Score: in range→100, out by 50%→55, >2x upper limit→20
+- LH: weight 15 — norm 1.7-8.6 IU/L
+- Testosterone: weight 15 — norm ≥12 nmol/L
+
+If only some parameters are present, normalize weights to sum to 100.
+Final score = weighted average of parameter scores, rounded to nearest integer.
+Score interpretation: 85-100 excellent, 70-84 good, 50-69 moderate, 30-49 below average, <30 low.
+
+Rules for other fields:
 - Generate one entry per biomarker in the biomarkers object
 - interpretations: warm, accessible, non-alarmist. For ok: brief reassurance. For warn/alert: explain gently
 - tips: 2-3 concrete, specific actions per biomarker directly linked to improving THAT parameter
@@ -153,6 +176,8 @@ ${abnormal.length ? `Points needing attention: ${abnormal.map(b => b.name).join(
 
     return {
       ...frontendResult,
+      globalScore:     typeof parsed.globalScore === 'number' ? parsed.globalScore : frontendResult.globalScore,
+      scoreBreakdown:  parsed.scoreBreakdown || null,
       copilotSummary:  parsed.copilotSummary  || buildFallbackSummary(frontendResult),
       recommendations: parsed.recommendations || buildFallbackRecs(frontendResult),
       biomarkers: frontendResult.biomarkers.map(b => ({

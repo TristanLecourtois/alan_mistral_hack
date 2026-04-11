@@ -176,7 +176,9 @@ export default function ResultsScreen() {
           >
             <View style={{ flex: 1 }}>
               <Text style={s.scoreLabel}>{hasIssues ? '💆 Nothing urgent' : '✅ Everything looks good'}</Text>
-              <Text style={s.scoreGuideline}>Sperm fully regenerate every 74 days — your next cycle starts today.</Text>
+              <Text style={s.scoreGuideline}>
+                {analysisResult.scoreBreakdown || 'Sperm fully regenerate every 74 days — your next cycle starts today.'}
+              </Text>
             </View>
             <View style={s.scoreBadge}>
               <Text style={s.scoreNum}>{analysisResult.globalScore}</Text>
