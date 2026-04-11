@@ -133,9 +133,14 @@ function BioSheet({ bio, visible, onClose }) {
 // ─── Main screen ─────────────────────────────────────────────
 export default function ResultsScreen() {
   const { navigate } = useNav()
-  const { analysisResult } = useApp()
+  const { analysisResult, setAnalysisResult } = useApp()
   const insets = useSafeAreaInsets()
   const [selectedBio, setSelectedBio] = useState(null)
+
+  function handleNewUpload() {
+    setAnalysisResult(null)
+    navigate(SCREENS.UPLOAD)
+  }
 
   // Entrance animation
   const fadeAnim = useRef(new Animated.Value(0)).current
@@ -179,8 +184,14 @@ export default function ResultsScreen() {
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
       <View style={s.header}>
-        <Text style={s.tag}>{analysisResult?.documentType?.toUpperCase() || 'RESULTS'} · {analysisResult?.date || ''}</Text>
-        <Text style={s.title}>Here's what matters</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.tag}>{analysisResult?.documentType?.toUpperCase() || 'RESULTS'} · {analysisResult?.date || ''}</Text>
+          <Text style={s.title}>Here's what matters</Text>
+        </View>
+        <TouchableOpacity style={s.uploadBtn} onPress={handleNewUpload} activeOpacity={0.8}>
+          <Text style={s.uploadBtnIcon}>📄</Text>
+          <Text style={s.uploadBtnText}>New scan</Text>
+        </TouchableOpacity>
       </View>
 
       <Animated.ScrollView
@@ -303,7 +314,10 @@ const sh = StyleSheet.create({
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  uploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.white, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1.5, borderColor: colors.blue },
+  uploadBtnIcon: { fontSize: 13 },
+  uploadBtnText: { fontSize: 12, fontWeight: font.bold, color: colors.blue },
   tag: { fontSize: 10, fontWeight: font.bold, letterSpacing: 1.5, color: colors.blue, marginBottom: 4 },
   title: { fontSize: 26, fontWeight: font.black, color: colors.navy },
   scroll: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },

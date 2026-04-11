@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNav, SCREENS } from '../navigation'
@@ -13,8 +13,8 @@ export default function WelcomeScreen() {
       <View style={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 32 }]}>
 
         <View style={styles.logo}>
-          <Text style={styles.logoEmoji}>🧬</Text>
-          <Text style={styles.logoName}>Fertility Copilot</Text>
+          <Image source={require('../../assets/logo.png')} style={styles.logoImage} resizeMode="contain" />
+          <Text style={styles.logoName}>Mia</Text>
           <Text style={styles.logoPowered}>Alan × Mistral</Text>
         </View>
 
@@ -46,13 +46,13 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 28, justifyContent: 'space-between' },
   logo: { alignItems: 'flex-start' },
-  logoEmoji: { fontSize: 32, marginBottom: 6 },
-  logoName: { fontSize: 16, fontWeight: font.bold, color: 'rgba(255,255,255,0.9)' },
-  logoPowered: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, letterSpacing: 1 },
+  logoImage: { height: 120, width: 360, marginBottom: 2, marginLeft: -130 },
+  logoName: { fontSize: 34, fontWeight: font.black, color: colors.white, letterSpacing: 1, marginBottom: 2 },
+  logoPowered: { fontSize: 11, color: 'rgba(255,255,255,0.45)', letterSpacing: 1 },
   hero: { flex: 1, justifyContent: 'center', paddingVertical: 40 },
   title: { fontSize: 34, fontWeight: font.black, color: 'rgba(255,255,255,0.5)', lineHeight: 42, marginBottom: 20 },
   titleAccent: { color: colors.white },
-  subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.65)', lineHeight: 24 },
+  subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.65)', lineHeight: 24, letterSpacing: 1 },
   bottom: { gap: 12 },
   btn: { backgroundColor: colors.teal, borderRadius: 18, padding: 18, alignItems: 'center' },
   btnText: { color: colors.white, fontSize: 16, fontWeight: font.bold, letterSpacing: 0.3 },

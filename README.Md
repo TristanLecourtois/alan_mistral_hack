@@ -1,4 +1,4 @@
-# Fertility Copilot
+# Mia, your Fertility Companion
 
 > AI-powered mobile companion that reads your fertility test results, explains them in plain language, connects to your wearables, and builds a personalized action plan to improve your chances.
 
@@ -19,7 +19,7 @@ This gap between diagnosis and action leads to anxiety, poor adherence, and miss
 
 ## What It Does
 
-Fertility Copilot is a mobile app (iOS/Android) that turns a photo of any fertility lab report into a personalized, actionable health dashboard.
+Mia is a mobile app (iOS/Android) that turns a photo of any fertility lab report into a personalized, actionable health dashboard.
 
 1. **Scan & Analyse** — The user photographs their lab document (spermogram, hormonal panel, etc.). Mistral's OCR model extracts every biomarker and compares it against WHO 2021 clinical norms. A global fertility score (0–100) is generated using clinically weighted rules (progressive motility 30%, concentration 20%, total motility 20%, morphology 15%, volume 8%, pH 4%, vitality 3%).
 
