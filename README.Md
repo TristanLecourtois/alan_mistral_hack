@@ -6,7 +6,7 @@
 
 | Name | LinkedIn Profile Link |
 | ---- | --------------------- |
-| Tristan Lecourtois | [linkedin.com/in/tristan-lecourtois-599812268](https://www.linkedin.com/in/tristan-lecourtois/) |
+| Tristan Lecourtois | [linkedin.com/in/tristan-lecourtois](https://www.linkedin.com/in/tristan-lecourtois/) |
 | Alice Devilder | [linkedin.com/in/alice-devilder](https://www.linkedin.com/in/alice-devilder/) |
 | Max Moock | [linkedin.com/in/maxmoock](https://www.linkedin.com/in/maxmoock/) |
 | Nubia Tomita | [linkedin.com/in/itsnubia](https://www.linkedin.com/in/itsnubia/) |
